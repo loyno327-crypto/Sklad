@@ -3747,6 +3747,7 @@ const CARGO_TRIPS_SHEET_CARGO = 'МаршрутыГрузов';
 const CARGO_TRIPS_SHEET_SETTINGS = 'Настройки';
 const CARGO_TRIPS_SHEET_DICT = 'Справочники';
 const CARGO_TRIPS_SHEET_DASHBOARD = 'Дашборд';
+const CARGO_TRIPS_SHEET_DRIVER_WRITEOFFS = 'СписанияВодителям';
 
 function hasCargoTripsRole_(roleName) {
   const role = String(roleName || '').trim();
@@ -3776,6 +3777,7 @@ function cargoTripsSetupSpreadsheet() {
   const settingsSheet = cargoTripsGetOrCreateSheet_(ss, CARGO_TRIPS_SHEET_SETTINGS);
   const dictSheet = cargoTripsGetOrCreateSheet_(ss, CARGO_TRIPS_SHEET_DICT);
   const dashboardSheet = cargoTripsGetOrCreateSheet_(ss, CARGO_TRIPS_SHEET_DASHBOARD);
+  const driverWriteoffsSheet = cargoTripsGetOrCreateSheet_(ss, CARGO_TRIPS_SHEET_DRIVER_WRITEOFFS);
 
   cargoTripsPrepareSheet_(tripsSheet, [[
     'ID',
@@ -3833,6 +3835,15 @@ function cargoTripsSetupSpreadsheet() {
     ['Вид оплаты', 'С НДС']
   ]);
 
+  cargoTripsPrepareSheet_(driverWriteoffsSheet, [[
+    'Дата',
+    'Водитель',
+    'Сумма списания',
+    'Основание',
+    'Комментарий',
+    'Создано'
+  ]]);
+
   if (dashboardSheet.getLastRow() === 0) {
     dashboardSheet.getRange(1, 1).setValue('Дашборд доступен в окне приложения.');
   }
@@ -3842,16 +3853,19 @@ function cargoTripsSetupSpreadsheet() {
   cargoTripsStyleSheet_(settingsSheet);
   cargoTripsStyleSheet_(dictSheet);
   cargoTripsStyleSheet_(dashboardSheet);
+  cargoTripsStyleSheet_(driverWriteoffsSheet);
 
   tripsSheet.setFrozenRows(1);
   cargoSheet.setFrozenRows(1);
   settingsSheet.setFrozenRows(1);
   dictSheet.setFrozenRows(1);
+  driverWriteoffsSheet.setFrozenRows(1);
 
   tripsSheet.autoResizeColumns(1, 20);
   cargoSheet.autoResizeColumns(1, 11);
   settingsSheet.autoResizeColumns(1, 3);
   dictSheet.autoResizeColumns(1, 2);
+  driverWriteoffsSheet.autoResizeColumns(1, 6);
 
   SpreadsheetApp.flush();
 }
@@ -3868,7 +3882,33 @@ function cargoTripsGetAppData() {
     settings: settings,
     paymentTypes: paymentTypes,
     trips: trips,
-    dashboard: cargoTripsBuildDashboard_(trips)
+    dashboard: cargoTripsBuildDashboard_(trips),
+    driverWriteoffs: cargoTripsGetDriverWriteoffs_()
+  };
+}
+
+function cargoTripsSaveDriverWriteoff(payload) {
+  requireCargoTripsAccess_('списание денег для водителя');
+  cargoTripsSetupSpreadsheet();
+  cargoTripsValidateDriverWriteoffPayload_(payload);
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CARGO_TRIPS_SHEET_DRIVER_WRITEOFFS);
+  if (!sheet) {
+    throw new Error('Лист списаний водителям не найден.');
+  }
+
+  sheet.appendRow([
+    cargoTripsNormalizeDate_(payload.date),
+    String(payload.driver || '').trim(),
+    cargoTripsRound_(cargoTripsToNumber_(payload.amount)),
+    String(payload.reason || '').trim(),
+    String(payload.comment || '').trim(),
+    new Date()
+  ]);
+
+  return {
+    success: true,
+    message: 'Списание водителю сохранено.'
   };
 }
 
@@ -4210,13 +4250,16 @@ function cargoTripsRound_(num) {
 }
 
 function cargoTripsBuildDashboard_(trips) {
+  const writeoffs = cargoTripsGetDriverWriteoffs_();
   const result = {
     totalTrips: trips.length,
     totalRevenue: 0,
     totalFuel: 0,
     totalCompany: 0,
     totalDriver: 0,
-    totalTax: 0
+    totalTax: 0,
+    totalDriverWriteoff: 0,
+    totalDriverNet: 0
   };
 
   trips.forEach(function (t) {
@@ -4228,10 +4271,15 @@ function cargoTripsBuildDashboard_(trips) {
   });
 
   Object.keys(result).forEach(function (key) {
-    if (key !== 'totalTrips') {
+    if (key !== 'totalTrips' && key !== 'totalDriverNet') {
       result[key] = round2_(result[key]);
     }
   });
+
+  result.totalDriverWriteoff = round2_(writeoffs.reduce(function (sum, item) {
+    return sum + cargoTripsToNumber_(item.amount);
+  }, 0));
+  result.totalDriverNet = round2_(result.totalDriver - result.totalDriverWriteoff);
 
   return result;
 }
@@ -4254,6 +4302,44 @@ function cargoTripsValidateTripPayload_(payload) {
       throw new Error('Укажи вид оплаты в строке ' + (index + 1));
     }
   });
+}
+
+function cargoTripsValidateDriverWriteoffPayload_(payload) {
+  if (!payload) throw new Error('Нет данных для списания.');
+  if (!payload.date) throw new Error('Укажи дату списания.');
+  if (!payload.driver || !String(payload.driver).trim()) throw new Error('Укажи водителя.');
+  if (cargoTripsToNumber_(payload.amount) <= 0) throw new Error('Сумма списания должна быть больше нуля.');
+  if (!payload.reason || !String(payload.reason).trim()) throw new Error('Укажи основание списания.');
+}
+
+function cargoTripsGetDriverWriteoffs_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CARGO_TRIPS_SHEET_DRIVER_WRITEOFFS);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return [];
+  }
+
+  const values = sheet.getDataRange().getValues();
+  const rows = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0] && !row[1] && !row[2]) continue;
+    rows.push({
+      date: cargoTripsFormatDateForClient_(row[0]),
+      driver: row[1] || '',
+      amount: cargoTripsToNumber_(row[2]),
+      reason: row[3] || '',
+      comment: row[4] || '',
+      createdAt: cargoTripsFormatDateTimeForClient_(row[5])
+    });
+  }
+
+  rows.sort(function (a, b) {
+    const da = new Date(a.date || '1970-01-01');
+    const db = new Date(b.date || '1970-01-01');
+    return db - da;
+  });
+
+  return rows;
 }
 
 function cargoTripsGenerateTripId_() {

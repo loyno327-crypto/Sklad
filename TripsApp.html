@@ -43,6 +43,9 @@
     .stat { background: white; border-radius: 14px; padding: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
     .stat-label { color: #6b7280; font-size: 13px; margin-bottom: 8px; }
     .stat-value { font-size: 24px; font-weight: 800; }
+    .dashboard-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    .dashboard-writeoff-form { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 10px; align-items: end; }
+    .dashboard-history { overflow: auto; border: 1px solid #e4e9f0; border-radius: 12px; }
     .settings-grid { display: grid; grid-template-columns: 1fr 220px; gap: 10px; align-items: center; margin-bottom: 10px; }
     .small { font-size: 12px; color: #6b7280; }
     .loading { padding: 30px; text-align: center; color: #6b7280; }
@@ -51,6 +54,7 @@
     @media (max-width: 1200px) {
       .layout-list, .form-grid, .detail-grid, .stats-grid { grid-template-columns: 1fr; }
       .cargo-row { grid-template-columns: 1fr; }
+      .dashboard-writeoff-form { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -135,7 +139,41 @@
         </div>
       </div>
 
-      <div id="tab-dashboard" class="tab-panel"><div class="stats-grid" id="dashboardStats"></div></div>
+      <div id="tab-dashboard" class="tab-panel">
+        <div class="dashboard-grid">
+          <div class="stats-grid" id="dashboardStats"></div>
+          <div class="card">
+            <h2 class="section-title">Списание для водителя</h2>
+            <div class="dashboard-writeoff-form">
+              <div><label>Дата</label><input id="driverWriteoffDate" type="date"></div>
+              <div><label>Водитель</label><input id="driverWriteoffDriver" type="text" placeholder="ФИО водителя" list="driverWriteoffDrivers"></div>
+              <div><label>Сумма</label><input id="driverWriteoffAmount" type="number" min="0.01" step="0.01" placeholder="Например 2500"></div>
+              <div><label>Основание</label><input id="driverWriteoffReason" type="text" placeholder="Например штраф"></div>
+              <div><label>Комментарий</label><input id="driverWriteoffComment" type="text" placeholder="Опционально"></div>
+              <button class="btn btn-danger" onclick="saveDriverWriteoff()">Списать</button>
+            </div>
+            <datalist id="driverWriteoffDrivers"></datalist>
+          </div>
+          <div class="card">
+            <h2 class="section-title">История списаний водителей</h2>
+            <div class="dashboard-history">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Дата</th>
+                    <th>Водитель</th>
+                    <th>Сумма</th>
+                    <th>Основание</th>
+                    <th>Комментарий</th>
+                    <th>Создано</th>
+                  </tr>
+                </thead>
+                <tbody id="driverWriteoffHistory"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
       <div id="tab-settings" class="tab-panel">
         <div class="card">
           <h2 class="section-title">Настройки расчетов</h2>
@@ -147,7 +185,7 @@
   </div>
 
   <script>
-    let appData = { trips: [], settings: {}, paymentTypes: [], dashboard: {} };
+    let appData = { trips: [], settings: {}, paymentTypes: [], dashboard: {}, driverWriteoffs: [] };
     let currentTripId = null;
     let editingTripId = null;
 
@@ -155,7 +193,7 @@
       document.getElementById('loading').style.display = 'block';
       google.script.run
         .withSuccessHandler(data => {
-          appData = data || { trips: [], settings: {}, paymentTypes: [], dashboard: {} };
+          appData = data || { trips: [], settings: {}, paymentTypes: [], dashboard: {}, driverWriteoffs: [] };
           document.getElementById('loading').style.display = 'none';
           document.getElementById('topbarInfo').textContent = 'Всего поездок: ' + (appData.trips || []).length;
           renderPaymentFilter();
@@ -415,8 +453,61 @@
         <div class="stat"><div class="stat-label">Общие расходы на топливо</div><div class="stat-value">${formatMoney(d.totalFuel || 0)}</div></div>
         <div class="stat"><div class="stat-label">Итог компании</div><div class="stat-value">${formatMoney(d.totalCompany || 0)}</div></div>
         <div class="stat"><div class="stat-label">Выплаты водителям</div><div class="stat-value">${formatMoney(d.totalDriver || 0)}</div></div>
+        <div class="stat"><div class="stat-label">Списания водителям</div><div class="stat-value">${formatMoney(d.totalDriverWriteoff || 0)}</div></div>
+        <div class="stat"><div class="stat-label">К выплате после списаний</div><div class="stat-value">${formatMoney(d.totalDriverNet || 0)}</div></div>
         <div class="stat"><div class="stat-label">Налоги</div><div class="stat-value">${formatMoney(d.totalTax || 0)}</div></div>
       `;
+      renderDriverWriteoffHistory();
+      renderDriverWriteoffDrivers();
+      if (!document.getElementById('driverWriteoffDate').value) {
+        document.getElementById('driverWriteoffDate').value = new Date().toISOString().slice(0, 10);
+      }
+    }
+
+    function renderDriverWriteoffDrivers() {
+      const fromHistory = (appData.driverWriteoffs || []).map(item => item.driver).filter(Boolean);
+      const uniq = Array.from(new Set(fromHistory)).sort((a, b) => a.localeCompare(b));
+      document.getElementById('driverWriteoffDrivers').innerHTML = uniq.map(name => `<option value="${escapeAttr(name)}"></option>`).join('');
+    }
+
+    function renderDriverWriteoffHistory() {
+      const rows = appData.driverWriteoffs || [];
+      const body = document.getElementById('driverWriteoffHistory');
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="6" class="empty">Списаний пока нет.</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map(row => `
+        <tr>
+          <td>${escapeHtml(row.date || '')}</td>
+          <td>${escapeHtml(row.driver || '')}</td>
+          <td>${formatMoney(row.amount || 0)}</td>
+          <td>${escapeHtml(row.reason || '')}</td>
+          <td>${escapeHtml(row.comment || '-')}</td>
+          <td>${escapeHtml(row.createdAt || '-')}</td>
+        </tr>
+      `).join('');
+    }
+
+    function saveDriverWriteoff() {
+      const payload = {
+        date: document.getElementById('driverWriteoffDate').value,
+        driver: document.getElementById('driverWriteoffDriver').value.trim(),
+        amount: document.getElementById('driverWriteoffAmount').value,
+        reason: document.getElementById('driverWriteoffReason').value.trim(),
+        comment: document.getElementById('driverWriteoffComment').value.trim()
+      };
+
+      google.script.run
+        .withSuccessHandler(res => {
+          alert((res && res.message) || 'Списание сохранено.');
+          document.getElementById('driverWriteoffAmount').value = '';
+          document.getElementById('driverWriteoffReason').value = '';
+          document.getElementById('driverWriteoffComment').value = '';
+          loadAppData();
+        })
+        .withFailureHandler(showError)
+        .cargoTripsSaveDriverWriteoff(payload);
     }
 
     function renderSettings() {

@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #f3f6fa; color: #1f2937; }
+    .app { display: flex; flex-direction: column; height: 100vh; }
+    .topbar { background: #1e3a5f; color: white; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; }
+    .topbar h1 { margin: 0; font-size: 22px; }
+    .tabs { display: flex; gap: 8px; padding: 12px 16px; background: #ffffff; border-bottom: 1px solid #d7dee8; }
+    .tab-btn { border: none; background: #e8eef5; padding: 10px 16px; border-radius: 10px; cursor: pointer; font-weight: 600; }
+    .tab-btn.active { background: #1e3a5f; color: white; }
+    .content { flex: 1; padding: 16px; overflow: auto; }
+    .tab-panel { display: none; height: 100%; }
+    .tab-panel.active { display: block; }
+    .card { background: white; border-radius: 14px; padding: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); margin-bottom: 16px; }
+    .section-title { margin: 0 0 12px; font-size: 18px; font-weight: 700; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .toolbar input, .toolbar select, .form-grid input, .form-grid select, .form-grid textarea, .settings-grid input { padding: 10px 12px; border: 1px solid #cdd6e1; border-radius: 10px; font-size: 14px; width: 100%; }
+    .btn { border: none; border-radius: 10px; padding: 10px 16px; cursor: pointer; font-weight: 600; }
+    .btn-primary { background: #1e3a5f; color: white; }
+    .btn-secondary { background: #e8eef5; color: #1f2937; }
+    .btn-danger { background: #b42318; color: white; }
+    .btn-success { background: #157347; color: white; }
+    .layout-list { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; min-height: 650px; }
+    .table-wrap { overflow: auto; border: 1px solid #e4e9f0; border-radius: 12px; background: white; }
+    table { width: 100%; border-collapse: collapse; min-width: 980px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e9eef4; text-align: left; vertical-align: top; font-size: 14px; }
+    th { background: #f7f9fc; position: sticky; top: 0; z-index: 1; font-size: 13px; }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: #f6faff; }
+    tbody tr.active { background: #eaf2fc; }
+    .detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+    .detail-box { background: #f8fafc; padding: 12px; border-radius: 10px; border: 1px solid #e5ebf3; }
+    .detail-label { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+    .detail-value { font-size: 16px; font-weight: 700; }
+    .cargo-row { display: grid; grid-template-columns: 1.7fr 0.7fr 0.9fr auto; gap: 10px; margin-bottom: 10px; align-items: center; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
+    textarea { min-height: 90px; resize: vertical; }
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .stat { background: white; border-radius: 14px; padding: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
+    .stat-label { color: #6b7280; font-size: 13px; margin-bottom: 8px; }
+    .stat-value { font-size: 24px; font-weight: 800; }
+    .settings-grid { display: grid; grid-template-columns: 1fr 220px; gap: 10px; align-items: center; margin-bottom: 10px; }
+    .small { font-size: 12px; color: #6b7280; }
+    .loading { padding: 30px; text-align: center; color: #6b7280; }
+    .empty { color: #6b7280; padding: 24px 0; }
+    .muted-card { background: #f8fafc; box-shadow: none; border: 1px solid #e4e9f0; }
+    @media (max-width: 1200px) {
+      .layout-list, .form-grid, .detail-grid, .stats-grid { grid-template-columns: 1fr; }
+      .cargo-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <h1>Грузоперевозки</h1>
+      <div id="topbarInfo" class="small"></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('list', this)">Список поездок</button>
+      <button class="tab-btn" onclick="openNewTripForm(this)">Внести поездку</button>
+      <button class="tab-btn" onclick="switchTab('dashboard', this)">Дашборд</button>
+      <button class="tab-btn" onclick="switchTab('settings', this)">Настройки</button>
+    </div>
+
+    <div class="content">
+      <div id="loading" class="loading">Загрузка данных...</div>
+
+      <div id="tab-list" class="tab-panel active">
+        <div class="layout-list">
+          <div class="card">
+            <div class="toolbar">
+              <input id="searchInput" type="text" placeholder="Поиск по маршруту..." oninput="renderTripList()">
+              <input id="dateFrom" type="date" onchange="renderTripList()">
+              <input id="dateTo" type="date" onchange="renderTripList()">
+              <select id="paymentFilter" onchange="renderTripList()"></select>
+              <button class="btn btn-primary" onclick="openNewTripForm()">Новая поездка</button>
+              <button class="btn btn-secondary" onclick="resetFilters()">Сбросить фильтры</button>
+              <button class="btn btn-secondary" onclick="loadAppData()">Обновить</button>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Дата</th>
+                    <th>Основной маршрут</th>
+                    <th>Км</th>
+                    <th>Холостой пробег</th>
+                    <th>Выручка</th>
+                    <th>Компания</th>
+                    <th>Водитель</th>
+                    <th>Типы оплат</th>
+                  </tr>
+                </thead>
+                <tbody id="tripTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2 class="section-title">Подробности поездки</h2>
+            <div id="tripDetails" class="empty">Выбери поездку в списке слева.</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-form" class="tab-panel">
+        <div class="card">
+          <h2 id="formTitle" class="section-title">Внести поездку</h2>
+          <div class="form-grid">
+            <div><label>Дата</label><input id="tripDate" type="date"></div>
+            <div><label>Общий километраж</label><input id="tripKm" type="number" min="0" step="0.01" placeholder="Например 800"></div>
+            <div><label>Основной маршрут</label><input id="tripMainRoute" type="text" placeholder="Ульяновск - Казань - Ульяновск"></div>
+            <div><label>Холостой пробег (км)</label><input id="tripIdleKm" type="number" min="0" step="0.01" placeholder="Например 200"></div>
+            <div style="grid-column: 1 / -1;"><label>Комментарий</label><textarea id="tripComment" placeholder="Комментарий по рейсу"></textarea></div>
+          </div>
+
+          <div class="card muted-card">
+            <h3 class="section-title" style="font-size:16px;">Маршруты грузов</h3>
+            <div id="cargoRoutesContainer"></div>
+            <button class="btn btn-secondary" onclick="addCargoRow()">Добавить маршрут</button>
+          </div>
+
+          <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-success" onclick="saveTrip()">Сохранить поездку</button>
+            <button class="btn btn-secondary" onclick="resetForm()">Очистить форму</button>
+            <button class="btn btn-secondary" onclick="switchTab('list')">Назад к списку</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-dashboard" class="tab-panel"><div class="stats-grid" id="dashboardStats"></div></div>
+      <div id="tab-settings" class="tab-panel">
+        <div class="card">
+          <h2 class="section-title">Настройки расчетов</h2>
+          <div id="settingsContainer"></div>
+          <div style="margin-top:16px;"><button class="btn btn-success" onclick="saveSettings()">Сохранить настройки</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let appData = { trips: [], settings: {}, paymentTypes: [], dashboard: {} };
+    let currentTripId = null;
+    let editingTripId = null;
+
+    function loadAppData() {
+      document.getElementById('loading').style.display = 'block';
+      google.script.run
+        .withSuccessHandler(data => {
+          appData = data || { trips: [], settings: {}, paymentTypes: [], dashboard: {} };
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('topbarInfo').textContent = 'Всего поездок: ' + (appData.trips || []).length;
+          renderPaymentFilter();
+          renderTripList();
+          renderDashboard();
+          renderSettings();
+        })
+        .withFailureHandler(showError)
+        .cargoTripsGetAppData();
+    }
+
+    function switchTab(tabName, btnEl) {
+      document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + tabName).classList.add('active');
+      if (btnEl) {
+        btnEl.classList.add('active');
+      } else {
+        const labels = { list: 'Список поездок', form: 'Внести поездку', dashboard: 'Дашборд', settings: 'Настройки' };
+        document.querySelectorAll('.tab-btn').forEach(btn => { if (btn.textContent.trim() === labels[tabName]) btn.classList.add('active'); });
+      }
+    }
+
+    function renderPaymentFilter() {
+      const select = document.getElementById('paymentFilter');
+      select.innerHTML = '<option value="">Все виды оплаты</option>' + (appData.paymentTypes || []).map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+    }
+
+    function resetFilters() {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('dateFrom').value = '';
+      document.getElementById('dateTo').value = '';
+      document.getElementById('paymentFilter').value = '';
+      renderTripList();
+    }
+
+    function getFilteredTrips() {
+      const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+      const paymentFilter = document.getElementById('paymentFilter').value || '';
+      const dateFrom = document.getElementById('dateFrom').value || '';
+      const dateTo = document.getElementById('dateTo').value || '';
+
+      let trips = [...(appData.trips || [])];
+      if (search) trips = trips.filter(t => (t.mainRoute || '').toLowerCase().includes(search) || (t.id || '').toLowerCase().includes(search));
+      if (dateFrom) trips = trips.filter(t => (t.date || '') >= dateFrom);
+      if (dateTo) trips = trips.filter(t => (t.date || '') <= dateTo);
+      if (paymentFilter) trips = trips.filter(t => (t.cargoRoutes || []).some(c => c.paymentType === paymentFilter));
+      return trips;
+    }
+
+    function renderTripList() {
+      const body = document.getElementById('tripTableBody');
+      const trips = getFilteredTrips();
+      if (!trips.length) {
+        body.innerHTML = '<tr><td colspan="8" class="empty">Поездки не найдены.</td></tr>';
+        document.getElementById('tripDetails').innerHTML = '<div class="empty">Выбери поездку в списке слева.</div>';
+        return;
+      }
+
+      body.innerHTML = trips.map(t => `
+        <tr class="${currentTripId === t.id ? 'active' : ''}" onclick="selectTrip('${escapeJs(t.id)}')">
+          <td>${escapeHtml(t.date || '')}</td>
+          <td>${escapeHtml(t.mainRoute || '')}</td>
+          <td>${formatNumber(t.totalKm)}</td>
+          <td>${formatNumber(t.idleKm)}</td>
+          <td>${formatMoney(t.totalRevenue)}</td>
+          <td>${formatMoney(t.companyFinal)}</td>
+          <td>${formatMoney(t.driverFinal)}</td>
+          <td>${escapeHtml(t.paymentTypesLabel || '-')}</td>
+        </tr>
+      `).join('');
+
+      const selectedStillVisible = trips.find(t => t.id === currentTripId);
+      if (selectedStillVisible) renderTripDetails(selectedStillVisible);
+      else {
+        currentTripId = trips[0].id;
+        renderTripDetails(trips[0]);
+        renderTripListHighlightOnly();
+      }
+    }
+
+    function renderTripListHighlightOnly() {
+      const rows = document.querySelectorAll('#tripTableBody tr');
+      const trips = getFilteredTrips();
+      rows.forEach((row, idx) => {
+        if (trips[idx] && trips[idx].id === currentTripId) row.classList.add('active');
+        else row.classList.remove('active');
+      });
+    }
+
+    function selectTrip(tripId) {
+      currentTripId = tripId;
+      const trip = (appData.trips || []).find(t => t.id === tripId);
+      renderTripDetails(trip);
+      renderTripListHighlightOnly();
+    }
+
+    function renderTripDetails(trip) {
+      const container = document.getElementById('tripDetails');
+      if (!trip) {
+        container.innerHTML = '<div class="empty">Поездка не найдена.</div>';
+        return;
+      }
+
+      const cargoHtml = (trip.cargoRoutes || []).length
+        ? trip.cargoRoutes.map(c => `
+          <div class="detail-box" style="margin-bottom:8px;">
+            <div><strong>${escapeHtml(c.route)}</strong></div>
+            <div class="small">Цена: ${formatMoney(c.price)} | Оплата: ${escapeHtml(c.paymentType || '-')}</div>
+            <div class="small">Топливо: ${formatMoney(c.allocatedFuel)} | Остаток: ${formatMoney(c.remainderAfterFuel)}</div>
+            <div class="small">Лизинг: ${formatMoney(c.leasing)} | Ремонт: ${formatMoney(c.repair)}</div>
+            <div class="small">Водитель до налога: ${formatMoney(c.driverBeforeTax)} | Налог: ${formatMoney(c.tax)} | Водителю: ${formatMoney(c.driverAfterTax)}</div>
+          </div>
+        `).join('')
+        : '<div class="empty">Нет маршрутов груза.</div>';
+
+      container.innerHTML = `
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:14px; flex-wrap:wrap;">
+          <div><div class="small">ID поездки</div><div style="font-weight:700; font-size:18px;">${escapeHtml(trip.id)}</div></div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="editTrip('${escapeJs(trip.id)}')">Редактировать</button>
+            <button class="btn btn-danger" onclick="deleteTrip('${escapeJs(trip.id)}')">Удалить</button>
+          </div>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-box"><div class="detail-label">Дата</div><div class="detail-value">${escapeHtml(trip.date || '')}</div></div>
+          <div class="detail-box"><div class="detail-label">Основной маршрут</div><div class="detail-value">${escapeHtml(trip.mainRoute || '')}</div></div>
+          <div class="detail-box"><div class="detail-label">Общий километраж</div><div class="detail-value">${formatNumber(trip.totalKm)} км</div></div>
+          <div class="detail-box"><div class="detail-label">Холостой пробег</div><div class="detail-value">${formatNumber(trip.idleKm)} км</div></div>
+          <div class="detail-box"><div class="detail-label">Общая выручка</div><div class="detail-value">${formatMoney(trip.totalRevenue)}</div></div>
+          <div class="detail-box"><div class="detail-label">Типы оплат</div><div class="detail-value">${escapeHtml(trip.paymentTypesLabel || '-')}</div></div>
+        </div>
+        <div class="card muted-card"><h3 class="section-title" style="font-size:16px;">Маршруты грузов</h3>${cargoHtml}</div>
+        <div class="card muted-card">
+          <h3 class="section-title" style="font-size:16px;">Финансы по поездке</h3>
+          <div class="detail-grid">
+            <div class="detail-box"><div class="detail-label">Топливо основного пробега</div><div class="detail-value">${formatMoney(trip.fuelMain)}</div></div>
+            <div class="detail-box"><div class="detail-label">Топливо холостого пробега</div><div class="detail-value">${formatMoney(trip.fuelIdle)}</div></div>
+            <div class="detail-box"><div class="detail-label">Остаток после топлива</div><div class="detail-value">${formatMoney(trip.remainderAfterFuel)}</div></div>
+            <div class="detail-box"><div class="detail-label">Лизинг</div><div class="detail-value">${formatMoney(trip.leasing)}</div></div>
+            <div class="detail-box"><div class="detail-label">Ремонт</div><div class="detail-value">${formatMoney(trip.repair)}</div></div>
+            <div class="detail-box"><div class="detail-label">Водитель до корректировок</div><div class="detail-value">${formatMoney(trip.driverBeforeAdjustments)}</div></div>
+            <div class="detail-box"><div class="detail-label">Корректировка водителя за холостой пробег</div><div class="detail-value">${formatMoney(trip.driverIdleAdjustment)}</div></div>
+            <div class="detail-box"><div class="detail-label">Налог</div><div class="detail-value">${formatMoney(trip.tax)}</div></div>
+            <div class="detail-box"><div class="detail-label">Водитель к выплате</div><div class="detail-value">${formatMoney(trip.driverFinal)}</div></div>
+            <div class="detail-box"><div class="detail-label">Итог компании</div><div class="detail-value">${formatMoney(trip.companyFinal)}</div></div>
+          </div>
+        </div>
+        <div class="detail-box"><div class="detail-label">Комментарий</div><div>${escapeHtml(trip.comment || '-')}</div></div>
+      `;
+    }
+
+    function openNewTripForm(btnEl) {
+      editingTripId = null;
+      document.getElementById('formTitle').textContent = 'Внести поездку';
+      resetForm(false);
+      addCargoRow();
+      switchTab('form', btnEl);
+    }
+
+    function editTrip(tripId) {
+      const trip = (appData.trips || []).find(t => t.id === tripId);
+      if (!trip) {
+        alert('Поездка не найдена.');
+        return;
+      }
+      editingTripId = trip.id;
+      document.getElementById('formTitle').textContent = 'Редактировать поездку';
+      document.getElementById('tripDate').value = trip.date || '';
+      document.getElementById('tripMainRoute').value = trip.mainRoute || '';
+      document.getElementById('tripKm').value = trip.totalKm || '';
+      document.getElementById('tripIdleKm').value = trip.idleKm || '';
+      document.getElementById('tripComment').value = trip.comment || '';
+
+      const container = document.getElementById('cargoRoutesContainer');
+      container.innerHTML = '';
+      (trip.cargoRoutes || []).forEach(item => addCargoRow({ route: item.route, price: item.price, paymentType: item.paymentType }));
+      if (!(trip.cargoRoutes || []).length) addCargoRow();
+      switchTab('form');
+    }
+
+    function resetForm(withOneRow = true) {
+      document.getElementById('tripDate').value = '';
+      document.getElementById('tripMainRoute').value = '';
+      document.getElementById('tripKm').value = '';
+      document.getElementById('tripIdleKm').value = '';
+      document.getElementById('tripComment').value = '';
+      document.getElementById('cargoRoutesContainer').innerHTML = '';
+      editingTripId = null;
+      document.getElementById('formTitle').textContent = 'Внести поездку';
+      if (withOneRow) addCargoRow();
+    }
+
+    function addCargoRow(data = {}) {
+      const container = document.getElementById('cargoRoutesContainer');
+      const row = document.createElement('div');
+      row.className = 'cargo-row';
+      row.innerHTML = `
+        <input type="text" class="cargo-route" placeholder="Маршрут груза" value="${escapeAttr(data.route || '')}">
+        <input type="number" class="cargo-price" min="0" step="0.01" placeholder="Цена" value="${escapeAttr(data.price || '')}">
+        <select class="cargo-payment">
+          ${(appData.paymentTypes || []).map(type => `<option value="${escapeAttr(type)}" ${data.paymentType === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}
+        </select>
+        <button type="button" class="btn btn-danger" onclick="this.parentElement.remove()">Удалить</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function collectFormData() {
+      const cargoRows = [...document.querySelectorAll('#cargoRoutesContainer .cargo-row')].map(row => ({
+        route: row.querySelector('.cargo-route').value.trim(),
+        price: row.querySelector('.cargo-price').value,
+        paymentType: row.querySelector('.cargo-payment').value
+      })).filter(item => item.route || item.price || item.paymentType);
+
+      return {
+        id: editingTripId,
+        date: document.getElementById('tripDate').value,
+        mainRoute: document.getElementById('tripMainRoute').value.trim(),
+        totalKm: document.getElementById('tripKm').value,
+        idleKm: document.getElementById('tripIdleKm').value,
+        comment: document.getElementById('tripComment').value.trim(),
+        cargoRoutes: cargoRows
+      };
+    }
+
+    function saveTrip() {
+      const payload = collectFormData();
+      google.script.run
+        .withSuccessHandler(res => {
+          alert(res.message || 'Сохранено.');
+          loadAppData();
+          switchTab('list');
+          resetForm(false);
+        })
+        .withFailureHandler(showError)
+        .cargoTripsSaveTrip(payload);
+    }
+
+    function deleteTrip(tripId) {
+      if (!confirm('Удалить эту поездку?')) return;
+      google.script.run
+        .withSuccessHandler(() => {
+          currentTripId = null;
+          loadAppData();
+        })
+        .withFailureHandler(showError)
+        .cargoTripsDeleteTrip(tripId);
+    }
+
+    function renderDashboard() {
+      const d = appData.dashboard || {};
+      const container = document.getElementById('dashboardStats');
+      container.innerHTML = `
+        <div class="stat"><div class="stat-label">Всего поездок</div><div class="stat-value">${d.totalTrips || 0}</div></div>
+        <div class="stat"><div class="stat-label">Общая выручка</div><div class="stat-value">${formatMoney(d.totalRevenue || 0)}</div></div>
+        <div class="stat"><div class="stat-label">Общие расходы на топливо</div><div class="stat-value">${formatMoney(d.totalFuel || 0)}</div></div>
+        <div class="stat"><div class="stat-label">Итог компании</div><div class="stat-value">${formatMoney(d.totalCompany || 0)}</div></div>
+        <div class="stat"><div class="stat-label">Выплаты водителям</div><div class="stat-value">${formatMoney(d.totalDriver || 0)}</div></div>
+        <div class="stat"><div class="stat-label">Налоги</div><div class="stat-value">${formatMoney(d.totalTax || 0)}</div></div>
+      `;
+    }
+
+    function renderSettings() {
+      const container = document.getElementById('settingsContainer');
+      const labels = {
+        diesel_price: 'Цена дизеля, руб/литр',
+        fuel_consumption_per_100km: 'Расход, литров на 100 км',
+        leasing_percent: 'Процент на лизинг',
+        repair_percent: 'Процент на ремонт',
+        driver_percent: 'Процент водителю',
+        vat_driver_tax_percent: 'Налог с доли водителя для С НДС',
+        idle_driver_percent: 'Процент топлива холостого пробега с водителя',
+        currency_symbol: 'Символ валюты'
+      };
+
+      container.innerHTML = Object.keys(labels).map(key => `
+        <div class="settings-grid">
+          <div>${labels[key]}</div>
+          <input id="setting-${key}" type="text" value="${escapeAttr(appData.settings[key] || '')}">
+        </div>
+      `).join('');
+    }
+
+    function saveSettings() {
+      const settingsObj = {
+        diesel_price: document.getElementById('setting-diesel_price').value,
+        fuel_consumption_per_100km: document.getElementById('setting-fuel_consumption_per_100km').value,
+        leasing_percent: document.getElementById('setting-leasing_percent').value,
+        repair_percent: document.getElementById('setting-repair_percent').value,
+        driver_percent: document.getElementById('setting-driver_percent').value,
+        vat_driver_tax_percent: document.getElementById('setting-vat_driver_tax_percent').value,
+        idle_driver_percent: document.getElementById('setting-idle_driver_percent').value,
+        currency_symbol: document.getElementById('setting-currency_symbol').value
+      };
+
+      google.script.run
+        .withSuccessHandler(() => {
+          alert('Настройки сохранены.');
+          loadAppData();
+        })
+        .withFailureHandler(showError)
+        .cargoTripsSaveSettings(settingsObj);
+    }
+
+    function formatMoney(value) {
+      const num = Number(value || 0);
+      const formatted = num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const symbol = (appData.settings && appData.settings.currency_symbol) ? appData.settings.currency_symbol : 'руб.';
+      return formatted + ' ' + symbol;
+    }
+
+    function formatNumber(value) {
+      return Number(value || 0).toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    function escapeAttr(str) { return escapeHtml(str); }
+    function escapeJs(str) { return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+    function showError(err) { console.error(err); alert(err && err.message ? err.message : 'Произошла ошибка'); }
+
+    loadAppData();
+  </script>
+</body>
+</html>

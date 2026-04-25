@@ -48,8 +48,18 @@
     .loading { padding: 30px; text-align: center; color: #6b7280; }
     .empty { color: #6b7280; padding: 24px 0; }
     .muted-card { background: #f8fafc; box-shadow: none; border: 1px solid #e4e9f0; }
+    .stat-hint { position: relative; }
+    .stat-tooltip {
+      position: absolute; left: 16px; top: calc(100% + 8px); background: #111827; color: #fff;
+      padding: 8px 10px; border-radius: 8px; font-size: 12px; min-width: 230px; display: none; z-index: 5;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+    }
+    .stat-hint:hover .stat-tooltip { display: block; }
+    .payout-layout { display:grid; grid-template-columns: 0.9fr 1.1fr; gap:16px; }
+    .payout-history-wrap { overflow:auto; border: 1px solid #e4e9f0; border-radius: 12px; background: white; }
+    .payout-history-wrap table { min-width: 760px; }
     @media (max-width: 1200px) {
-      .layout-list, .form-grid, .detail-grid, .stats-grid { grid-template-columns: 1fr; }
+      .layout-list, .form-grid, .detail-grid, .stats-grid, .payout-layout { grid-template-columns: 1fr; }
       .cargo-row { grid-template-columns: 1fr; }
     }
   </style>
@@ -66,6 +76,7 @@
       <button class="tab-btn" onclick="openNewTripForm(this)">Внести поездку</button>
       <button class="tab-btn" onclick="switchTab('dashboard', this)">Дашборд</button>
       <button class="tab-btn" onclick="switchTab('settings', this)">Настройки</button>
+      <button class="tab-btn" onclick="switchTab('writeoffs', this)">Списания</button>
     </div>
 
     <div class="content">
@@ -118,6 +129,7 @@
             <div><label>Общий километраж</label><input id="tripKm" type="number" min="0" step="0.01" placeholder="Например 800"></div>
             <div><label>Основной маршрут</label><input id="tripMainRoute" type="text" placeholder="Ульяновск - Казань - Ульяновск"></div>
             <div><label>Холостой пробег (км)</label><input id="tripIdleKm" type="number" min="0" step="0.01" placeholder="Например 200"></div>
+            <div><label>Водитель</label><input id="tripDriver" type="text" placeholder="ФИО водителя"></div>
             <div style="grid-column: 1 / -1;"><label>Комментарий</label><textarea id="tripComment" placeholder="Комментарий по рейсу"></textarea></div>
           </div>
 
@@ -143,11 +155,46 @@
           <div style="margin-top:16px;"><button class="btn btn-success" onclick="saveSettings()">Сохранить настройки</button></div>
         </div>
       </div>
+      <div id="tab-writeoffs" class="tab-panel">
+        <div class="payout-layout">
+          <div class="card">
+            <h2 class="section-title">Внести выплату водителю</h2>
+            <div class="form-grid">
+              <div><label>Водитель</label><select id="payoutDriver" onchange="onPayoutDriverChange()"></select></div>
+              <div><label>Дата выплаты</label><input id="payoutDate" type="date"></div>
+              <div><label>Сумма выплаты</label><input id="payoutAmount" type="number" min="0.01" step="0.01" oninput="renderPayoutPreview()"></div>
+              <div><label>Остаток до выплаты</label><input id="payoutBalanceBefore" type="text" readonly></div>
+              <div><label>Остаток после выплаты</label><input id="payoutBalanceAfter" type="text" readonly></div>
+              <div style="grid-column: 1 / -1;"><label>Комментарий / назначение</label><textarea id="payoutComment" placeholder="Например: аванс за рейс Москва — Казань"></textarea></div>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button class="btn btn-success" onclick="saveDriverPayout()">Сохранить выплату</button>
+              <button class="btn btn-secondary" onclick="resetPayoutForm()">Очистить</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2 class="section-title">Задолженность по водителям</h2>
+            <div id="driverBalances" class="empty">Нет данных.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">История выплат</h2>
+          <div class="payout-history-wrap">
+            <table>
+              <thead><tr><th>Водитель</th><th>Дата</th><th>Сумма выплаты</th><th>Комментарий</th><th>Остаток после выплаты</th></tr></thead>
+              <tbody id="payoutHistoryBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
   <script>
-    let appData = { trips: [], settings: {}, paymentTypes: [], dashboard: {} };
+    let appData = { trips: [], settings: {}, paymentTypes: [], dashboard: {}, driverBalances: [], payoutHistory: [] };
     let currentTripId = null;
     let editingTripId = null;
 
@@ -155,13 +202,14 @@
       document.getElementById('loading').style.display = 'block';
       google.script.run
         .withSuccessHandler(data => {
-          appData = data || { trips: [], settings: {}, paymentTypes: [], dashboard: {} };
+          appData = data || { trips: [], settings: {}, paymentTypes: [], dashboard: {}, driverBalances: [], payoutHistory: [] };
           document.getElementById('loading').style.display = 'none';
           document.getElementById('topbarInfo').textContent = 'Всего поездок: ' + (appData.trips || []).length;
           renderPaymentFilter();
           renderTripList();
           renderDashboard();
           renderSettings();
+          renderWriteoffs();
         })
         .withFailureHandler(showError)
         .cargoTripsGetAppData();
@@ -174,7 +222,7 @@
       if (btnEl) {
         btnEl.classList.add('active');
       } else {
-        const labels = { list: 'Список поездок', form: 'Внести поездку', dashboard: 'Дашборд', settings: 'Настройки' };
+        const labels = { list: 'Список поездок', form: 'Внести поездку', dashboard: 'Дашборд', settings: 'Настройки', writeoffs: 'Списания' };
         document.querySelectorAll('.tab-btn').forEach(btn => { if (btn.textContent.trim() === labels[tabName]) btn.classList.add('active'); });
       }
     }
@@ -223,7 +271,7 @@
           <td>${formatNumber(t.idleKm)}</td>
           <td>${formatMoney(t.totalRevenue)}</td>
           <td>${formatMoney(t.companyFinal)}</td>
-          <td>${formatMoney(t.driverFinal)}</td>
+          <td>${escapeHtml(t.driver || "—")}<div class="small">Начислено: ${formatMoney(t.driverFinal)}</div></td>
           <td>${escapeHtml(t.paymentTypesLabel || '-')}</td>
         </tr>
       `).join('');
@@ -287,6 +335,7 @@
           <div class="detail-box"><div class="detail-label">Холостой пробег</div><div class="detail-value">${formatNumber(trip.idleKm)} км</div></div>
           <div class="detail-box"><div class="detail-label">Общая выручка</div><div class="detail-value">${formatMoney(trip.totalRevenue)}</div></div>
           <div class="detail-box"><div class="detail-label">Типы оплат</div><div class="detail-value">${escapeHtml(trip.paymentTypesLabel || '-')}</div></div>
+          <div class="detail-box"><div class="detail-label">Водитель</div><div class="detail-value">${escapeHtml(trip.driver || '—')}</div></div>
         </div>
         <div class="card muted-card"><h3 class="section-title" style="font-size:16px;">Маршруты грузов</h3>${cargoHtml}</div>
         <div class="card muted-card">
@@ -328,6 +377,7 @@
       document.getElementById('tripMainRoute').value = trip.mainRoute || '';
       document.getElementById('tripKm').value = trip.totalKm || '';
       document.getElementById('tripIdleKm').value = trip.idleKm || '';
+      document.getElementById('tripDriver').value = trip.driver || '';
       document.getElementById('tripComment').value = trip.comment || '';
 
       const container = document.getElementById('cargoRoutesContainer');
@@ -342,6 +392,7 @@
       document.getElementById('tripMainRoute').value = '';
       document.getElementById('tripKm').value = '';
       document.getElementById('tripIdleKm').value = '';
+      document.getElementById('tripDriver').value = '';
       document.getElementById('tripComment').value = '';
       document.getElementById('cargoRoutesContainer').innerHTML = '';
       editingTripId = null;
@@ -377,6 +428,7 @@
         mainRoute: document.getElementById('tripMainRoute').value.trim(),
         totalKm: document.getElementById('tripKm').value,
         idleKm: document.getElementById('tripIdleKm').value,
+        driver: document.getElementById('tripDriver').value.trim(),
         comment: document.getElementById('tripComment').value.trim(),
         cargoRoutes: cargoRows
       };
@@ -413,9 +465,10 @@
         <div class="stat"><div class="stat-label">Всего поездок</div><div class="stat-value">${d.totalTrips || 0}</div></div>
         <div class="stat"><div class="stat-label">Общая выручка</div><div class="stat-value">${formatMoney(d.totalRevenue || 0)}</div></div>
         <div class="stat"><div class="stat-label">Общие расходы на топливо</div><div class="stat-value">${formatMoney(d.totalFuel || 0)}</div></div>
-        <div class="stat"><div class="stat-label">Итог компании</div><div class="stat-value">${formatMoney(d.totalCompany || 0)}</div></div>
+        <div class="stat stat-hint"><div class="stat-label">Итог компании</div><div class="stat-value">${formatMoney(d.totalCompany || 0)}</div>
+          <div class="stat-tooltip">Лизинг: <b>${formatMoney(d.totalLeasing || 0)}</b><br>Ремонт: <b>${formatMoney(d.totalRepair || 0)}</b></div>
+        </div>
         <div class="stat"><div class="stat-label">Выплаты водителям</div><div class="stat-value">${formatMoney(d.totalDriver || 0)}</div></div>
-        <div class="stat"><div class="stat-label">Налоги</div><div class="stat-value">${formatMoney(d.totalTax || 0)}</div></div>
       `;
     }
 
@@ -459,6 +512,103 @@
         })
         .withFailureHandler(showError)
         .cargoTripsSaveSettings(settingsObj);
+    }
+
+
+    function renderWriteoffs() {
+      renderDriverBalances();
+      renderPayoutDriverOptions();
+      renderPayoutHistory();
+      resetPayoutForm();
+    }
+
+    function renderDriverBalances() {
+      const rows = appData.driverBalances || [];
+      const container = document.getElementById('driverBalances');
+      if (!rows.length) {
+        container.innerHTML = '<div class="empty">Пока нет начислений по водителям.</div>';
+        return;
+      }
+      container.innerHTML = rows.map(row => `
+        <div class="detail-box" style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;gap:10px;">
+            <b>${escapeHtml(row.driver || '—')}</b>
+            <b>${formatMoney(row.remaining || 0)}</b>
+          </div>
+          <div class="small">Начислено: ${formatMoney(row.accrued || 0)} · Выплачено: ${formatMoney(row.paid || 0)}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderPayoutDriverOptions() {
+      const select = document.getElementById('payoutDriver');
+      const rows = (appData.driverBalances || []).filter(r => Number(r.remaining || 0) > 0);
+      select.innerHTML = '<option value="">Выберите водителя</option>' + rows
+        .map(row => `<option value="${escapeAttr(row.driver || '')}">${escapeHtml(row.driver || '—')} (${formatMoney(row.remaining || 0)})</option>`)
+        .join('');
+    }
+
+    function getSelectedDriverBalance() {
+      const driver = document.getElementById('payoutDriver').value;
+      return (appData.driverBalances || []).find(r => r.driver === driver) || null;
+    }
+
+    function onPayoutDriverChange() {
+      renderPayoutPreview();
+    }
+
+    function renderPayoutPreview() {
+      const row = getSelectedDriverBalance();
+      const before = row ? Number(row.remaining || 0) : 0;
+      const amount = Number(document.getElementById('payoutAmount').value || 0);
+      const after = Math.max(0, before - (isNaN(amount) ? 0 : amount));
+      document.getElementById('payoutBalanceBefore').value = formatMoney(before);
+      document.getElementById('payoutBalanceAfter').value = formatMoney(after);
+    }
+
+    function resetPayoutForm() {
+      document.getElementById('payoutDate').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('payoutAmount').value = '';
+      document.getElementById('payoutComment').value = '';
+      if (document.getElementById('payoutDriver').options.length > 1 && !document.getElementById('payoutDriver').value) {
+        document.getElementById('payoutDriver').selectedIndex = 1;
+      }
+      renderPayoutPreview();
+    }
+
+    function saveDriverPayout() {
+      const payload = {
+        driver: document.getElementById('payoutDriver').value,
+        date: document.getElementById('payoutDate').value,
+        amount: document.getElementById('payoutAmount').value,
+        comment: document.getElementById('payoutComment').value.trim()
+      };
+      google.script.run
+        .withSuccessHandler(res => {
+          alert((res && res.message) ? res.message : 'Выплата сохранена.');
+          loadAppData();
+          switchTab('writeoffs');
+        })
+        .withFailureHandler(showError)
+        .cargoTripsSaveDriverPayout(payload);
+    }
+
+    function renderPayoutHistory() {
+      const body = document.getElementById('payoutHistoryBody');
+      const rows = appData.payoutHistory || [];
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="5" class="empty">История выплат пуста.</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map(row => `
+        <tr>
+          <td>${escapeHtml(row.driver || '—')}</td>
+          <td>${escapeHtml(row.date || '—')}</td>
+          <td>${formatMoney(row.amount || 0)}</td>
+          <td>${escapeHtml(row.comment || '—')}</td>
+          <td>${formatMoney(row.remainingAfter || 0)}</td>
+        </tr>
+      `).join('');
     }
 
     function formatMoney(value) {

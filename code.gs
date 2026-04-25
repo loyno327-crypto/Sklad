@@ -3747,7 +3747,6 @@ const CARGO_TRIPS_SHEET_CARGO = 'МаршрутыГрузов';
 const CARGO_TRIPS_SHEET_SETTINGS = 'Настройки';
 const CARGO_TRIPS_SHEET_DICT = 'Справочники';
 const CARGO_TRIPS_SHEET_DASHBOARD = 'Дашборд';
-const CARGO_TRIPS_SHEET_DRIVER_PAYOUTS = 'Списания водителям';
 
 function hasCargoTripsRole_(roleName) {
   const role = String(roleName || '').trim();
@@ -3777,7 +3776,6 @@ function cargoTripsSetupSpreadsheet() {
   const settingsSheet = cargoTripsGetOrCreateSheet_(ss, CARGO_TRIPS_SHEET_SETTINGS);
   const dictSheet = cargoTripsGetOrCreateSheet_(ss, CARGO_TRIPS_SHEET_DICT);
   const dashboardSheet = cargoTripsGetOrCreateSheet_(ss, CARGO_TRIPS_SHEET_DASHBOARD);
-  const payoutsSheet = cargoTripsGetOrCreateSheet_(ss, CARGO_TRIPS_SHEET_DRIVER_PAYOUTS);
 
   cargoTripsPrepareSheet_(tripsSheet, [[
     'ID',
@@ -3798,7 +3796,6 @@ function cargoTripsSetupSpreadsheet() {
     'Итог компании',
     'Типы оплат',
     'Комментарий',
-    'Водитель',
     'Создано',
     'Обновлено'
   ]]);
@@ -3836,17 +3833,6 @@ function cargoTripsSetupSpreadsheet() {
     ['Вид оплаты', 'С НДС']
   ]);
 
-  cargoTripsPrepareSheet_(payoutsSheet, [[
-    'ID',
-    'Дата',
-    'Водитель',
-    'Сумма выплаты',
-    'Комментарий',
-    'Остаток после выплаты',
-    'Создано',
-    'Пользователь'
-  ]]);
-
   if (dashboardSheet.getLastRow() === 0) {
     dashboardSheet.getRange(1, 1).setValue('Дашборд доступен в окне приложения.');
   }
@@ -3856,19 +3842,16 @@ function cargoTripsSetupSpreadsheet() {
   cargoTripsStyleSheet_(settingsSheet);
   cargoTripsStyleSheet_(dictSheet);
   cargoTripsStyleSheet_(dashboardSheet);
-  cargoTripsStyleSheet_(payoutsSheet);
 
   tripsSheet.setFrozenRows(1);
   cargoSheet.setFrozenRows(1);
   settingsSheet.setFrozenRows(1);
   dictSheet.setFrozenRows(1);
-  payoutsSheet.setFrozenRows(1);
 
-  tripsSheet.autoResizeColumns(1, 21);
+  tripsSheet.autoResizeColumns(1, 20);
   cargoSheet.autoResizeColumns(1, 11);
   settingsSheet.autoResizeColumns(1, 3);
   dictSheet.autoResizeColumns(1, 2);
-  payoutsSheet.autoResizeColumns(1, 8);
 
   SpreadsheetApp.flush();
 }
@@ -3880,16 +3863,12 @@ function cargoTripsGetAppData() {
   const settings = cargoTripsGetSettings_();
   const paymentTypes = cargoTripsGetPaymentTypes_();
   const trips = cargoTripsGetAllTrips_();
-  const payoutHistory = cargoTripsGetDriverPayouts_();
-  const driverBalances = cargoTripsBuildDriverBalances_(trips, payoutHistory);
 
   return {
     settings: settings,
     paymentTypes: paymentTypes,
     trips: trips,
-    dashboard: cargoTripsBuildDashboard_(trips),
-    driverBalances: driverBalances,
-    payoutHistory: payoutHistory
+    dashboard: cargoTripsBuildDashboard_(trips)
   };
 }
 
@@ -3938,7 +3917,6 @@ function cargoTripsSaveTrip(payload) {
     calculation.companyFinal,
     calculation.paymentTypesLabel,
     payload.comment || '',
-    payload.driver || '',
     isEdit ? cargoTripsGetCreatedAtById_(tripId) : now,
     now
   ];
@@ -4092,9 +4070,8 @@ function cargoTripsGetAllTrips_() {
       companyFinal: cargoTripsToNumber_(r[15]),
       paymentTypesLabel: r[16] || '',
       comment: r[17] || '',
-      driver: r[18] || '',
-      createdAt: cargoTripsFormatDateTimeForClient_(r[19]),
-      updatedAt: cargoTripsFormatDateTimeForClient_(r[20]),
+      createdAt: cargoTripsFormatDateTimeForClient_(r[18]),
+      updatedAt: cargoTripsFormatDateTimeForClient_(r[19]),
       cargoRoutes: cargoMap[String(r[0])] || []
     });
   }
@@ -4239,8 +4216,7 @@ function cargoTripsBuildDashboard_(trips) {
     totalFuel: 0,
     totalCompany: 0,
     totalDriver: 0,
-    totalLeasing: 0,
-    totalRepair: 0
+    totalTax: 0
   };
 
   trips.forEach(function (t) {
@@ -4248,8 +4224,7 @@ function cargoTripsBuildDashboard_(trips) {
     result.totalFuel += cargoTripsToNumber_(t.fuelMain) + cargoTripsToNumber_(t.fuelIdle);
     result.totalCompany += cargoTripsToNumber_(t.companyFinal);
     result.totalDriver += cargoTripsToNumber_(t.driverFinal);
-    result.totalLeasing += cargoTripsToNumber_(t.leasing);
-    result.totalRepair += cargoTripsToNumber_(t.repair);
+    result.totalTax += cargoTripsToNumber_(t.tax);
   });
 
   Object.keys(result).forEach(function (key) {
@@ -4265,7 +4240,6 @@ function cargoTripsValidateTripPayload_(payload) {
   if (!payload) throw new Error('Нет данных поездки.');
   if (!payload.date) throw new Error('Укажи дату поездки.');
   if (!payload.mainRoute || !String(payload.mainRoute).trim()) throw new Error('Укажи основной маршрут.');
-  if (!payload.driver || !String(payload.driver).trim()) throw new Error('Укажи водителя.');
   if (cargoTripsToNumber_(payload.totalKm) <= 0) throw new Error('Общий километраж должен быть больше нуля.');
   if (!payload.cargoRoutes || payload.cargoRoutes.length === 0) throw new Error('Добавь хотя бы один маршрут груза.');
 
@@ -4282,113 +4256,6 @@ function cargoTripsValidateTripPayload_(payload) {
   });
 }
 
-
-
-function cargoTripsGetDriverPayouts_() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CARGO_TRIPS_SHEET_DRIVER_PAYOUTS);
-  if (!sheet || sheet.getLastRow() < 2) {
-    return [];
-  }
-
-  const values = sheet.getDataRange().getValues();
-  const payouts = [];
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    if (!row[0]) continue;
-
-    payouts.push({
-      id: String(row[0] || ''),
-      date: cargoTripsFormatDateForClient_(row[1]),
-      driver: row[2] || '',
-      amount: cargoTripsToNumber_(row[3]),
-      comment: row[4] || '',
-      remainingAfter: cargoTripsToNumber_(row[5]),
-      createdAt: cargoTripsFormatDateTimeForClient_(row[6]),
-      user: row[7] || ''
-    });
-  }
-
-  payouts.sort(function (a, b) {
-    const ad = new Date(a.date || '1970-01-01');
-    const bd = new Date(b.date || '1970-01-01');
-    if (bd.getTime() !== ad.getTime()) return bd - ad;
-    return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
-  });
-
-  return payouts;
-}
-
-function cargoTripsBuildDriverBalances_(trips, payouts) {
-  const map = {};
-
-  (trips || []).forEach(function (trip) {
-    const driver = String(trip.driver || '').trim();
-    if (!driver) return;
-    if (!map[driver]) {
-      map[driver] = { driver: driver, accrued: 0, paid: 0, remaining: 0 };
-    }
-    map[driver].accrued += cargoTripsToNumber_(trip.driverFinal);
-  });
-
-  (payouts || []).forEach(function (payout) {
-    const driver = String(payout.driver || '').trim();
-    if (!driver) return;
-    if (!map[driver]) {
-      map[driver] = { driver: driver, accrued: 0, paid: 0, remaining: 0 };
-    }
-    map[driver].paid += cargoTripsToNumber_(payout.amount);
-  });
-
-  return Object.keys(map).map(function (driver) {
-    const row = map[driver];
-    const accrued = round2_(row.accrued);
-    const paid = round2_(row.paid);
-    return {
-      driver: driver,
-      accrued: accrued,
-      paid: paid,
-      remaining: round2_(Math.max(0, accrued - paid))
-    };
-  }).sort(function (a, b) { return b.remaining - a.remaining; });
-}
-
-function cargoTripsSaveDriverPayout(payload) {
-  requireCargoTripsAccess_('сохранение выплаты водителю модуля "Грузоперевозки"');
-  cargoTripsSetupSpreadsheet();
-
-  const driver = String(payload && payload.driver || '').trim();
-  const amount = cargoTripsToNumber_(payload && payload.amount);
-  const payoutDate = payload && payload.date ? cargoTripsNormalizeDate_(payload.date) : new Date();
-  const comment = String(payload && payload.comment || '').trim();
-
-  if (!driver) throw new Error('Выбери водителя.');
-  if (!isFinite(amount) || amount <= 0) throw new Error('Сумма выплаты должна быть больше 0.');
-
-  const trips = cargoTripsGetAllTrips_();
-  const history = cargoTripsGetDriverPayouts_();
-  const balances = cargoTripsBuildDriverBalances_(trips, history);
-  const balanceRow = balances.find(function (row) { return row.driver === driver; });
-  const remaining = balanceRow ? cargoTripsToNumber_(balanceRow.remaining) : 0;
-
-  if (remaining <= 0) throw new Error('По этому водителю нет задолженности для списания.');
-  if (amount > remaining) {
-    throw new Error('Сумма выплаты превышает задолженность. Доступно: ' + fmtMoney_(remaining) + '.');
-  }
-
-  const remainingAfter = round2_(remaining - amount);
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CARGO_TRIPS_SHEET_DRIVER_PAYOUTS);
-  const now = new Date();
-  const user = getCurrentUserEmail_();
-  const id = 'DRV-' + Utilities.getUuid().slice(0, 8).toUpperCase();
-
-  sheet.appendRow([id, payoutDate, driver, round2_(amount), comment, remainingAfter, now, user]);
-
-  return {
-    success: true,
-    message: 'Выплата сохранена: ' + driver + ' — ' + fmtMoney_(amount) + '. Остаток: ' + fmtMoney_(remainingAfter) + '.'
-  };
-}
 function cargoTripsGenerateTripId_() {
   const now = new Date();
   const part = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMddHHmmss');
@@ -4401,7 +4268,7 @@ function cargoTripsGetCreatedAtById_(tripId) {
   const values = sheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {
     if (String(values[i][0]) === String(tripId)) {
-      return values[i][19] || values[i][18] || new Date();
+      return values[i][18] || new Date();
     }
   }
   return new Date();

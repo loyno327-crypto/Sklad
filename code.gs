@@ -377,8 +377,10 @@ function updateCatalogPriceByArticle_(article, newPrice) {
 
 function showMainMenuPanel() {
   const html = HtmlService.createHtmlOutputFromFile('QuickAccessPanel')
+    .setWidth(420)
+    .setHeight(680)
     .setTitle('Меню');
-  SpreadsheetApp.getUi().showSidebar(html);
+  SpreadsheetApp.getUi().showModelessDialog(html, 'Меню');
 }
 
 function showQuickAccessPanel() {

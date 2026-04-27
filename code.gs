@@ -2,17 +2,11 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   const menu = ui.createMenu('Склад');
   menu.addItem('Меню', 'showMainMenuPanel');
-  menu.addItem('1. Обновить всё', 'refreshAll');
   menu.addSeparator();
-  menu.addItem('2. Инвентаризация', 'showInventoryForm');
-  menu.addItem('3. Поиск товара', 'showSearchForm');
-  menu.addItem('4. Дашборд кладовщика', 'showStorekeeperDashboard');
-  menu.addItem('5. Дашборд руководителя', 'showManagementDashboard');
-  menu.addItem('6. Автопарк и поездки', 'showFleetTripsDashboard');
-  menu.addItem('7. Грузоперевозки', 'showCargoTripsApp');
+  menu.addSeparator();
+  menu.addItem('Обновить данные', 'refreshAll');
   menu.addToUi();
 }
-
 function normalizeEmail_(value) {
   return String(value || '').trim().toLowerCase();
 }

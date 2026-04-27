@@ -1,496 +1,50 @@
 function onOpen() {
-  try {
-    ensureAccessControlSheets_();
-  } catch (e) {
-    // Не блокируем открытие файла для пользователей без прав изменения служебных листов.
-  }
-
   const ui = SpreadsheetApp.getUi();
   const menu = ui.createMenu('Склад');
-  let access;
-  try {
-    access = getCurrentUserAccess_();
-  } catch (e) {
-    access = {
-      permissions: {
-        refreshAll: false,
-        inventory: false,
-        search: false,
-        storekeeperDashboard: false,
-        managementDashboard: false,
-        fleetDashboard: false,
-        manageAccess: false
-      }
-    };
-  }
-
   menu.addItem('Меню', 'showMainMenuPanel');
-  if (access.permissions.refreshAll) menu.addItem('1. Обновить всё', 'refreshAll');
+  menu.addItem('1. Обновить всё', 'refreshAll');
   menu.addSeparator();
-  if (access.permissions.inventory) menu.addItem('2. Инвентаризация', 'showInventoryForm');
-  if (access.permissions.search) menu.addItem('3. Поиск товара', 'showSearchForm');
-  if (access.permissions.storekeeperDashboard) menu.addItem('4. Дашборд кладовщика', 'showStorekeeperDashboard');
-  if (access.permissions.managementDashboard) menu.addItem('5. Дашборд руководителя', 'showManagementDashboard');
-  if (access.permissions.fleetDashboard) menu.addItem('6. Автопарк и поездки', 'showFleetTripsDashboard');
-  if (hasCargoTripsRole_(access.role)) menu.addItem('7. Грузоперевозки', 'showCargoTripsApp');
-  if (access.permissions.manageAccess) {
-    menu.addSeparator();
-    menu.addItem('8. Управление доступом', 'showAccessAdminPanel');
-    menu.addItem('9. Защитить листы', 'syncSheetProtections');
-  }
+  menu.addItem('2. Инвентаризация', 'showInventoryForm');
+  menu.addItem('3. Поиск товара', 'showSearchForm');
+  menu.addItem('4. Дашборд кладовщика', 'showStorekeeperDashboard');
+  menu.addItem('5. Дашборд руководителя', 'showManagementDashboard');
+  menu.addItem('6. Автопарк и поездки', 'showFleetTripsDashboard');
+  menu.addItem('7. Грузоперевозки', 'showCargoTripsApp');
   menu.addToUi();
 }
-const ACCESS_ROLE_SHEET = 'Роли доступа';
-const ACCESS_USERS_SHEET = 'Пользователи и роли';
-const ACCESS_SNAPSHOT_KEY = 'ACCESS_CONTROL_SNAPSHOT_V1';
-const ACCESS_PERMISSION_FIELDS = [
-  'menu',
-  'inventory',
-  'search',
-  'storekeeperDashboard',
-  'managementDashboard',
-  'fleetDashboard',
-  'manageAccess',
-  'refreshAll'
-];
-const ACCESS_PERMISSION_LABELS = {
-  menu: 'Меню',
-  inventory: 'Инвентаризация',
-  search: 'Поиск',
-  storekeeperDashboard: 'Дашборд кладовщика',
-  managementDashboard: 'Дашборд руководителя',
-  fleetDashboard: 'Автопарк и поездки',
-  manageAccess: 'Управление доступом',
-  refreshAll: 'Обновить всё'
-};
-const ACCESS_ROLE_COMMENT_HEADER = 'Комментарий';
 
 function normalizeEmail_(value) {
   return String(value || '').trim().toLowerCase();
-}
-
-function getRoleSheetHeaders_() {
-  return ['Роль'].concat(ACCESS_PERMISSION_FIELDS.map(function (key) {
-    return ACCESS_PERMISSION_LABELS[key];
-  })).concat([ACCESS_ROLE_COMMENT_HEADER]);
-}
-
-function getRoleColumnIndexes_(sheet, allowRepair) {
-  if (allowRepair === undefined) allowRepair = true;
-  const headers = getRoleSheetHeaders_();
-  const currentLastCol = Math.max(sheet.getLastColumn(), 1);
-  const currentHeader = sheet.getRange(1, 1, 1, currentLastCol).getValues()[0];
-  const missing = headers.some(function (h) { return currentHeader.indexOf(h) === -1; });
-
-  if (missing || currentHeader[0] !== 'Роль') {
-    if (!allowRepair) {
-      throw new Error('Некорректная структура листа "' + ACCESS_ROLE_SHEET + '". Откройте "Управление доступом" под администратором и восстановите заголовки.');
-    }
-    const existing = sheet.getLastRow() >= 2 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, currentLastCol).getValues() : [];
-    const byHeader = {};
-    currentHeader.forEach(function (h, i) {
-      byHeader[String(h || '').trim()] = i;
-    });
-    const migrated = existing.map(function (row) {
-      const out = headers.map(function () { return ''; });
-      headers.forEach(function (h, idx) {
-        const oldIdx = byHeader[h];
-        if (typeof oldIdx === 'number') out[idx] = row[oldIdx];
-      });
-      return out;
-    });
-
-    sheet.clear();
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    if (migrated.length) {
-      sheet.getRange(2, 1, migrated.length, headers.length).setValues(migrated);
-    }
-    formatHeader_(sheet, 1, 1, 1, headers.length);
-    sheet.setFrozenRows(1);
-    autoResize_(sheet, 1, headers.length);
-  }
-
-  const finalHeader = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
-  const map = {};
-  finalHeader.forEach(function (h, i) {
-    map[String(h || '').trim()] = i;
-  });
-  return {
-    header: finalHeader,
-    indexes: map,
-    totalColumns: headers.length
-  };
-}
-
-function ensureAccessControlSheets_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  let roleSheet = ss.getSheetByName(ACCESS_ROLE_SHEET);
-  if (!roleSheet) roleSheet = ss.insertSheet(ACCESS_ROLE_SHEET);
-  if (roleSheet.getLastRow() === 0) {
-    const headers = [getRoleSheetHeaders_()];
-    const rows = [
-      ['Руководитель', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Полный доступ'],
-      ['Прораб', 'Да', 'Да', 'Да', 'Нет', 'Нет', 'Нет', 'Нет', 'Нет', 'Инвентаризация и поиск'],
-      ['Инженер по закупкам', 'Да', 'Нет', 'Да', 'Да', 'Нет', 'Нет', 'Нет', 'Нет', 'Поиск и дашборд кладовщика'],
-      ['Инженер по снабжению', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Полный доступ']
-    ];
-    roleSheet.getRange(1, 1, 1, headers[0].length).setValues(headers);
-    roleSheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
-    formatHeader_(roleSheet, 1, 1, 1, headers[0].length);
-    roleSheet.setFrozenRows(1);
-    autoResize_(roleSheet, 1, headers[0].length);
-  }
-  getRoleColumnIndexes_(roleSheet);
-
-  let userSheet = ss.getSheetByName(ACCESS_USERS_SHEET);
-  if (!userSheet) userSheet = ss.insertSheet(ACCESS_USERS_SHEET);
-  if (userSheet.getLastRow() === 0) {
-    const headers = [['Email', 'Роль', 'Активен', 'Комментарий']];
-    userSheet.getRange(1, 1, 1, headers[0].length).setValues(headers);
-    formatHeader_(userSheet, 1, 1, 1, headers[0].length);
-    userSheet.setFrozenRows(1);
-    const currentEmail = getCurrentUserEmail_();
-    if (currentEmail) {
-      userSheet.getRange(2, 1, 1, 4).setValues([[currentEmail, 'Инженер по снабжению', 'Да', 'Добавлен автоматически как первый администратор']]);
-    }
-    autoResize_(userSheet, 1, headers[0].length);
-  }
-  persistAccessSnapshot_();
-}
-
-function ensureAccessControlSheetsReadable_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const roleSheet = ss.getSheetByName(ACCESS_ROLE_SHEET);
-  const userSheet = ss.getSheetByName(ACCESS_USERS_SHEET);
-
-  if (!roleSheet || !userSheet) {
-    throw new Error('Служебные листы доступа не найдены. Администратор должен открыть "Управление доступом" и инициализировать таблицу.');
-  }
-}
-
-function isPermissionDeniedError_(error) {
-  const message = String(error && error.message || error || '');
-  return message.indexOf('PERMISSION_DENIED') !== -1 || message.indexOf('Недостаточно прав') !== -1;
-}
-
-function getAccessSnapshot_() {
-  const raw = PropertiesService.getScriptProperties().getProperty(ACCESS_SNAPSHOT_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    return null;
-  }
-}
-
-function persistAccessSnapshot_() {
-  const payload = {
-    rolesMap: readAccessRolesFromSheet_(),
-    users: readUserRoleEntriesFromSheet_(),
-    updatedAt: new Date().toISOString()
-  };
-  PropertiesService.getScriptProperties().setProperty(ACCESS_SNAPSHOT_KEY, JSON.stringify(payload));
-}
-
-function ensureAccessControlSheetsReadable_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const roleSheet = ss.getSheetByName(ACCESS_ROLE_SHEET);
-  const userSheet = ss.getSheetByName(ACCESS_USERS_SHEET);
-
-  if (!roleSheet || !userSheet) {
-    throw new Error('Служебные листы доступа не найдены. Администратор должен открыть "Управление доступом" и инициализировать таблицу.');
-  }
 }
 
 function getCurrentUserEmail_() {
   return normalizeEmail_(Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail());
 }
 
-function toBoolAccess_(value) {
-  const v = normalizeText_(String(value || ''));
-  return ['да', 'true', '1', 'yes', 'y'].indexOf(v) !== -1;
-}
-
-function readAccessRolesFromSheet_() {
-  ensureAccessControlSheetsReadable_();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(ACCESS_ROLE_SHEET);
-  const cols = getRoleColumnIndexes_(sheet, false);
-  const lastRow = sheet.getLastRow();
-  const map = {};
-  if (lastRow < 2) return map;
-  const data = sheet.getRange(2, 1, lastRow - 1, cols.totalColumns).getValues();
-  data.forEach(function (r) {
-    const role = String(r[cols.indexes['Роль']] || '').trim();
-    if (!role) return;
-    const permissions = {};
-    ACCESS_PERMISSION_FIELDS.forEach(function (key) {
-      const colName = ACCESS_PERMISSION_LABELS[key];
-      permissions[key] = toBoolAccess_(r[cols.indexes[colName]]);
-    });
-    map[role] = {
-      role: role,
-      permissions: permissions,
-      comment: String(r[cols.indexes[ACCESS_ROLE_COMMENT_HEADER]] || '').trim()
-    };
-  });
-  return map;
-}
-
-function getAccessRolesMap_() {
-  try {
-    return readAccessRolesFromSheet_();
-  } catch (e) {
-    if (!isPermissionDeniedError_(e)) throw e;
-    const snapshot = getAccessSnapshot_();
-    if (snapshot && snapshot.rolesMap) return snapshot.rolesMap;
-    throw new Error('Нет прав для чтения листа "' + ACCESS_ROLE_SHEET + '". Попросите администратора открыть "Управление доступом" и сохранить настройки.');
-  }
-}
-
-function readUserRoleEntriesFromSheet_() {
-  ensureAccessControlSheetsReadable_();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(ACCESS_USERS_SHEET);
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-  return sheet.getRange(2, 1, lastRow - 1, 4).getValues().map(function (r, idx) {
-    return {
-      sheetRow: idx + 2,
-      email: normalizeEmail_(r[0]),
-      role: String(r[1] || '').trim(),
-      active: toBoolAccess_(r[2]),
-      comment: String(r[3] || '').trim()
-    };
-  }).filter(function (row) { return !!row.email; });
-}
-
-function getUserRoleEntries_() {
-  try {
-    return readUserRoleEntriesFromSheet_();
-  } catch (e) {
-    if (!isPermissionDeniedError_(e)) throw e;
-    const snapshot = getAccessSnapshot_();
-    if (snapshot && snapshot.users) return snapshot.users;
-    throw new Error('Нет прав для чтения листа "' + ACCESS_USERS_SHEET + '". Попросите администратора открыть "Управление доступом" и сохранить настройки.');
-  }
-}
-
-function getActiveUsersWithPermission_(permissionKey) {
-  const rolesMap = getAccessRolesMap_();
-  return getUserRoleEntries_()
-    .filter(function (row) {
-      if (!row.active) return false;
-      const roleInfo = rolesMap[row.role];
-      return !!(roleInfo && roleInfo.permissions && roleInfo.permissions[permissionKey]);
-    })
-    .map(function (row) { return row.email; });
-}
-
 function getCurrentUserAccess_() {
-  const email = getCurrentUserEmail_();
-  const rolesMap = getAccessRolesMap_();
-  const users = getUserRoleEntries_();
-  const userRow = users.find(function (row) { return row.email === email && row.active; }) || null;
-  const roleName = userRow ? userRow.role : '';
-  const role = rolesMap[roleName] || null;
-  const permissions = {
-    menu: false,
-    inventory: false,
-    search: false,
-    storekeeperDashboard: false,
-    managementDashboard: false,
-    fleetDashboard: false,
-    manageAccess: false,
-    refreshAll: false
-  };
-  if (role && role.permissions) {
-    ACCESS_PERMISSION_FIELDS.forEach(function (key) { permissions[key] = !!role.permissions[key]; });
-  }
   return {
-    email: email,
-    role: roleName,
-    roleComment: role ? role.comment : '',
-    permissions: permissions,
-    hasAnyAccess: ACCESS_PERMISSION_FIELDS.some(function (key) { return !!permissions[key]; })
+    email: getCurrentUserEmail_(),
+    role: 'Все пользователи',
+    roleComment: '',
+    permissions: {
+      menu: true,
+      inventory: true,
+      search: true,
+      storekeeperDashboard: true,
+      managementDashboard: true,
+      fleetDashboard: true,
+      refreshAll: true
+    },
+    hasAnyAccess: true
   };
 }
 
 function requirePermission_(permissionKey, actionName) {
-  const access = getCurrentUserAccess_();
-  if (access.permissions[permissionKey]) return access;
-  throw new Error('Нет доступа: ' + actionName + '. Текущая роль: ' + (access.role || 'не назначена') + '.');
+  return getCurrentUserAccess_();
 }
 
 function getCurrentUserRoleInfo() {
-  const access = getCurrentUserAccess_();
-  return {
-    email: access.email,
-    role: access.role,
-    roleComment: access.roleComment,
-    permissions: access.permissions,
-    permissionLabels: ACCESS_PERMISSION_LABELS,
-    hasAnyAccess: access.hasAnyAccess
-  };
-}
-
-function getAccessControlData() {
-  requirePermission_('manageAccess', 'управление доступом');
-  const rolesMap = getAccessRolesMap_();
-  const users = getUserRoleEntries_();
-  const roles = Object.keys(rolesMap).map(function (name) {
-    return {
-      role: name,
-      permissions: rolesMap[name].permissions,
-      comment: rolesMap[name].comment
-    };
-  }).sort(function (a, b) { return a.role.localeCompare(b.role, 'ru'); });
-
-  return {
-    currentUser: getCurrentUserRoleInfo(),
-    roles: roles,
-    users: users
-  };
-}
-
-function saveAccessRole(payload) {
-  requirePermission_('manageAccess', 'управление доступом');
-  ensureAccessControlSheets_();
-
-  const roleName = String(payload && payload.role || '').trim();
-  const comment = String(payload && payload.comment || '').trim();
-  const permissionsPayload = payload && payload.permissions || {};
-
-  if (!roleName) throw new Error('Укажи название роли.');
-
-  const rolesMap = getAccessRolesMap_();
-  if (rolesMap[roleName]) throw new Error('Роль с таким названием уже существует.');
-
-  const permissionValues = ACCESS_PERMISSION_FIELDS.map(function (key) {
-    return permissionsPayload[key] ? 'Да' : 'Нет';
-  });
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(ACCESS_ROLE_SHEET);
-  const row = [roleName].concat(permissionValues).concat([comment]);
-  sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
-  autoResize_(sheet, 1, row.length);
-  persistAccessSnapshot_();
-  return 'Роль добавлена: ' + roleName;
-}
-
-function saveAccessControlData(payload) {
-  requirePermission_('manageAccess', 'управление доступом');
-  ensureAccessControlSheets_();
-
-  const users = Array.isArray(payload && payload.users) ? payload.users : [];
-  const rolesMap = getAccessRolesMap_();
-  const currentEmail = getCurrentUserEmail_();
-  const prepared = [];
-  const seen = {};
-
-  users.forEach(function (row) {
-    const email = normalizeEmail_(row.email);
-    const role = String(row.role || '').trim();
-    const active = row.active === false ? false : true;
-    const comment = String(row.comment || '').trim();
-    if (!email) return;
-    if (!rolesMap[role]) throw new Error('Неизвестная роль: ' + role + '. Сначала добавь роль в лист "' + ACCESS_ROLE_SHEET + '".');
-    if (seen[email]) throw new Error('Пользователь ' + email + ' указан несколько раз.');
-    seen[email] = true;
-    prepared.push([email, role, active ? 'Да' : 'Нет', comment]);
-  });
-
-  if (!prepared.length) throw new Error('Список пользователей пуст.');
-
-  const currentEntry = prepared.find(function (r) { return r[0] === currentEmail; });
-  if (!currentEntry) throw new Error('Нельзя удалить себе доступ. Оставь свою учетную запись в списке.');
-  if (!toBoolAccess_(currentEntry[2])) throw new Error('Нельзя отключить свою учетную запись.');
-  const currentRoleInfo = rolesMap[currentEntry[1]];
-  if (!currentRoleInfo || !currentRoleInfo.permissions.manageAccess) {
-    throw new Error('Нельзя снять у себя право управления доступом в этом действии.');
-  }
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(ACCESS_USERS_SHEET);
-  sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), 4).clearContent();
-  if (prepared.length) {
-    if (sheet.getMaxRows() < prepared.length + 1) {
-      sheet.insertRowsAfter(sheet.getMaxRows(), prepared.length + 1 - sheet.getMaxRows());
-    }
-    sheet.getRange(2, 1, prepared.length, 4).setValues(prepared);
-  }
-  autoResize_(sheet, 1, 4);
-  persistAccessSnapshot_();
-  syncSheetProtections();
-  return 'Доступы обновлены. Пользователей: ' + prepared.length;
-}
-
-function syncSheetProtections() {
-  requirePermission_('manageAccess', 'защита листов');
-  ensureAccessControlSheets_();
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const adminEmails = getActiveUsersWithPermission_('manageAccess');
-  const inventoryEmails = getActiveUsersWithPermission_('inventory');
-  const storekeeperEmails = getActiveUsersWithPermission_('storekeeperDashboard');
-  const fleetEmails = getActiveUsersWithPermission_('fleetDashboard');
-
-  if (!adminEmails.length) throw new Error('Нет ни одного администратора с правом управления доступом.');
-
-  const storekeeperSheetNames = [
-    'Номенклатура',
-    'Журнал движения',
-    'Справочник',
-    'Запросы номенклатуры',
-    'Остатки',
-    'Дашборд',
-    'Закреплено',
-    'Ответственные',
-    'История ответственности'
-  ];
-  const fleetSheetNames = ['Автопарк', 'ТО и ремонты', 'Поездки автопарк', 'Списания накоплений'];
-  const adminOnlySheets = [ACCESS_ROLE_SHEET, ACCESS_USERS_SHEET];
-
-  const extraEditorsBySheet = {};
-  const inventorySheetNames = ['Журнал движения', 'Справочник', 'Запросы номенклатуры', 'Остатки', 'Дашборд', 'Закреплено'];
-  inventorySheetNames.forEach(function (name) {
-    extraEditorsBySheet[name] = (extraEditorsBySheet[name] || []).concat(inventoryEmails);
-  });
-  storekeeperSheetNames.forEach(function (name) {
-    extraEditorsBySheet[name] = (extraEditorsBySheet[name] || []).concat(storekeeperEmails);
-  });
-  fleetSheetNames.forEach(function (name) { extraEditorsBySheet[name] = fleetEmails; });
-
-  ss.getSheets().forEach(function (sheet) {
-    const sheetName = sheet.getName();
-    let protection = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET)[0];
-    if (!protection) {
-      protection = sheet.protect();
-    }
-
-    const extraEditors = adminOnlySheets.indexOf(sheetName) === -1 ? (extraEditorsBySheet[sheetName] || []) : [];
-    const editors = Array.from(new Set(adminEmails.concat(extraEditors))).filter(function (email) { return !!email; });
-
-    protection.setDescription('Автозащита: редактирование по роли доступа');
-    protection.setWarningOnly(false);
-    try { protection.removeEditors(protection.getEditors()); } catch (e) {}
-    try { if (editors.length) protection.addEditors(editors); } catch (e) {}
-    if (protection.canDomainEdit && protection.canDomainEdit()) {
-      protection.setDomainEdit(false);
-    }
-  });
-
-  return 'Листы защищены по ролям. Администраторов: ' + adminEmails.length + ', инвентаризация: ' + inventoryEmails.length + ', кладовщик/закупки: ' + storekeeperEmails.length + ', автопарк: ' + fleetEmails.length + '.';
-}
-
-function showAccessAdminPanel() {
-  requirePermission_('manageAccess', 'управление доступом');
-  const html = HtmlService.createHtmlOutputFromFile('AccessAdminPanel')
-    .setWidth(1200)
-    .setHeight(820);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Управление доступом');
+  return getCurrentUserAccess_();
 }
 
 function getItemCardData(article) {
@@ -3741,7 +3295,6 @@ function saveFleetAccumulationWriteoff(payload) {
  * CARGO TRIPS MODULE
  * =========================
  */
-const CARGO_TRIPS_ALLOWED_ROLES = ['Руководитель', 'Инженер по снабжению'];
 const CARGO_TRIPS_SHEET_TRIPS = 'Поездки';
 const CARGO_TRIPS_SHEET_CARGO = 'МаршрутыГрузов';
 const CARGO_TRIPS_SHEET_SETTINGS = 'Настройки';
@@ -3750,14 +3303,11 @@ const CARGO_TRIPS_SHEET_DASHBOARD = 'Дашборд';
 const CARGO_TRIPS_SHEET_DRIVER_WRITEOFFS = 'СписанияВодителям';
 
 function hasCargoTripsRole_(roleName) {
-  const role = String(roleName || '').trim();
-  return CARGO_TRIPS_ALLOWED_ROLES.indexOf(role) !== -1;
+  return true;
 }
 
 function requireCargoTripsAccess_(actionName) {
-  const access = getCurrentUserAccess_();
-  if (hasCargoTripsRole_(access.role)) return access;
-  throw new Error('Нет доступа: ' + actionName + '. Разрешено только для ролей: ' + CARGO_TRIPS_ALLOWED_ROLES.join(', ') + '.');
+  return getCurrentUserAccess_();
 }
 
 function showCargoTripsApp() {

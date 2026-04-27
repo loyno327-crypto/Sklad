@@ -380,7 +380,7 @@ function showMainMenuPanel() {
     .setWidth(420)
     .setHeight(680)
     .setTitle('Меню');
-  SpreadsheetApp.getUi().showModelessDialog(html, 'Меню модулей');
+  SpreadsheetApp.getUi().showModelessDialog(html, 'Меню');
 }
 
 function showQuickAccessPanel() {

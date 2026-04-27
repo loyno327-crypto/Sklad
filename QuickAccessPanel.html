@@ -27,46 +27,24 @@
 <body>
   <div class="title">Меню</div>
   <div class="sub">Все разделы доступны всем пользователям</div>
-  <div id="buttons"></div>
+  <div id="buttons">
+    <button class="btn btn-primary" onclick="runAction('openQuickStorekeeperDashboard', 'Открываем дашборд кладовщика...')">Дашборд кладовщика</button>
+    <button class="btn" onclick="runAction('openQuickInventory', 'Открываем инвентаризацию...')">Инвентаризация</button>
+    <button class="btn" onclick="runAction('openQuickSearch', 'Открываем поиск товара...')">Поиск товара</button>
+    <button class="btn" onclick="runAction('openQuickManagementDashboard', 'Открываем дашборд руководителя...')">Дашборд руководителя</button>
+    <button class="btn" onclick="runAction('openQuickFleetDashboard', 'Открываем панель автопарка и поездок...')">Автопарк и поездки</button>
+    <button class="btn" onclick="runAction('showCargoTripsApp', 'Открываем модуль грузоперевозок...')">Грузоперевозки</button>
+    <button class="btn" onclick="runAction('openQuickRefreshAll', 'Обновляем данные...')">Обновить всё</button>
+  </div>
   <div id="status" class="status"></div>
 
   <script>
-    function escapeHtml(v) {
-      return String(v == null ? '' : v)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-
     function runAction(fnName, statusText) {
       document.getElementById('status').textContent = statusText;
       google.script.run
         .withSuccessHandler(function () { document.getElementById('status').textContent = ''; })
         .withFailureHandler(function (err) { document.getElementById('status').textContent = 'Ошибка: ' + (err.message || err); })[fnName]();
     }
-
-    function makeButton(text, fnName, statusText, primary) {
-      return '<button class="btn ' + (primary ? 'btn-primary' : '') + '" data-fn="' + escapeHtml(fnName) + '" data-status="' + escapeHtml(statusText) + '">' + escapeHtml(text) + '</button>';
-    }
-
-    const buttons = [
-      makeButton('Дашборд кладовщика', 'openQuickStorekeeperDashboard', 'Открываем дашборд кладовщика...', true),
-      makeButton('Инвентаризация', 'openQuickInventory', 'Открываем инвентаризацию...'),
-      makeButton('Поиск товара', 'openQuickSearch', 'Открываем поиск товара...'),
-      makeButton('Дашборд руководителя', 'openQuickManagementDashboard', 'Открываем дашборд руководителя...'),
-      makeButton('Автопарк и поездки', 'openQuickFleetDashboard', 'Открываем панель автопарка и поездок...'),
-      makeButton('Грузоперевозки', 'showCargoTripsApp', 'Открываем модуль грузоперевозок...'),
-      makeButton('Обновить всё', 'openQuickRefreshAll', 'Обновляем данные...')
-    ];
-
-    document.getElementById('buttons').innerHTML = buttons.join('');
-    document.querySelectorAll('#buttons .btn').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        runAction(btn.dataset.fn, btn.dataset.status);
-      });
-    });
   </script>
 </body>
 </html>

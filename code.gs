@@ -399,23 +399,23 @@ function showQuickAccessPanel() {
 }
 
 function openQuickInventory() {
-  showInventoryForm();
+  showUnifiedApp('InventoryForm');
 }
 
 function openQuickSearch() {
-  showSearchForm();
+  showUnifiedApp('SearchForm');
 }
 
 function openQuickStorekeeperDashboard() {
-  showStorekeeperDashboard();
+  showUnifiedApp('StorekeeperDashboard');
 }
 
 function openQuickManagementDashboard() {
-  showManagementDashboard();
+  showUnifiedApp('ManagementDashboard');
 }
 
 function openQuickFleetDashboard() {
-  showFleetTripsDashboard();
+  showUnifiedApp('FleetTripsDashboard');
 }
 
 function openQuickRefreshAll() {

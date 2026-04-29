@@ -370,11 +370,35 @@ function updateCatalogPriceByArticle_(article, newPrice) {
 }
 
 function showMainMenuPanel() {
-  const html = HtmlService.createHtmlOutputFromFile('QuickAccessPanel')
-    .setWidth(420)
-    .setHeight(680)
-    .setTitle('Меню');
-  SpreadsheetApp.getUi().showModelessDialog(html, 'Меню');
+  showUnifiedApp('StorekeeperDashboard');
+}
+
+function showUnifiedApp(initialModule) {
+  const tpl = HtmlService.createTemplateFromFile('UnifiedApp');
+  tpl.initialModule = String(initialModule || 'StorekeeperDashboard');
+  const html = tpl.evaluate()
+    .setWidth(1680)
+    .setHeight(980)
+    .setTitle('Склад — единое окно');
+  SpreadsheetApp.getUi().showModelessDialog(html, 'Склад — единое окно');
+}
+
+function getUnifiedModuleHtml(moduleName) {
+  const allowed = {
+    StorekeeperDashboard: true,
+    ManagementDashboard: true,
+    FleetTripsDashboard: true,
+    InventoryForm: true,
+    SearchForm: true,
+    TripsApp: true
+  };
+
+  const name = String(moduleName || '').trim();
+  if (!allowed[name]) {
+    throw new Error('Недоступный модуль: ' + name);
+  }
+
+  return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
 function showQuickAccessPanel() {
@@ -382,23 +406,23 @@ function showQuickAccessPanel() {
 }
 
 function openQuickInventory() {
-  showInventoryForm();
+  showUnifiedApp('InventoryForm');
 }
 
 function openQuickSearch() {
-  showSearchForm();
+  showUnifiedApp('SearchForm');
 }
 
 function openQuickStorekeeperDashboard() {
-  showStorekeeperDashboard();
+  showUnifiedApp('StorekeeperDashboard');
 }
 
 function openQuickManagementDashboard() {
-  showManagementDashboard();
+  showUnifiedApp('ManagementDashboard');
 }
 
 function openQuickFleetDashboard() {
-  showFleetTripsDashboard();
+  showUnifiedApp('FleetTripsDashboard');
 }
 
 function openQuickRefreshAll() {

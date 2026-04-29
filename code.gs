@@ -370,35 +370,28 @@ function updateCatalogPriceByArticle_(article, newPrice) {
 }
 
 function showMainMenuPanel() {
-  showUnifiedApp('StorekeeperDashboard');
-}
-
-function showUnifiedApp(initialModule) {
-  const tpl = HtmlService.createTemplateFromFile('UnifiedApp');
-  tpl.initialModule = String(initialModule || 'StorekeeperDashboard');
-  const html = tpl.evaluate()
-    .setWidth(1680)
+  const html = HtmlService.createHtmlOutputFromFile('QuickAccessPanel')
+    .setWidth(1700)
     .setHeight(980)
-    .setTitle('Склад — единое окно');
-  SpreadsheetApp.getUi().showModelessDialog(html, 'Склад — единое окно');
+    .setTitle('Склад: единое окно');
+  SpreadsheetApp.getUi().showModelessDialog(html, 'Склад: единое окно');
 }
 
 function getUnifiedModuleHtml(moduleName) {
-  const allowed = {
-    StorekeeperDashboard: true,
-    ManagementDashboard: true,
-    FleetTripsDashboard: true,
-    InventoryForm: true,
-    SearchForm: true,
-    TripsApp: true
+  const modules = {
+    StorekeeperDashboard: { file: 'StorekeeperDashboard', permission: 'storekeeperDashboard', action: 'дашборд кладовщика' },
+    InventoryForm: { file: 'InventoryForm', permission: 'inventory', action: 'инвентаризация' },
+    SearchForm: { file: 'SearchForm', permission: 'search', action: 'поиск товара' },
+    ManagementDashboard: { file: 'ManagementDashboard', permission: 'managementDashboard', action: 'дашборд руководителя' },
+    FleetTripsDashboard: { file: 'FleetTripsDashboard', permission: 'fleetDashboard', action: 'панель автопарка и поездок' },
+    TripsApp: { file: 'TripsApp', permission: 'fleetDashboard', action: 'модуль грузоперевозок' }
   };
 
-  const name = String(moduleName || '').trim();
-  if (!allowed[name]) {
-    throw new Error('Недоступный модуль: ' + name);
-  }
+  const selected = modules[String(moduleName || '')];
+  if (!selected) throw new Error('Неизвестный модуль: ' + moduleName);
 
-  return HtmlService.createHtmlOutputFromFile(name).getContent();
+  requirePermission_(selected.permission, selected.action);
+  return HtmlService.createHtmlOutputFromFile(selected.file).getContent();
 }
 
 function showQuickAccessPanel() {

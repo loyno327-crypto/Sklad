@@ -83,6 +83,7 @@
       <button class="tab" data-view="mass-move" onclick="setView('mass-move')">Массовое перемещение</button>
       <button class="tab" data-view="responsibility" onclick="setView('responsibility')">Ответственный за инструмент</button>
       <button class="tab" data-view="edit" onclick="setView('edit')">Редактор товара</button>
+      <button class="tab" data-view="inventory-list" onclick="setView('inventory-list')">Вывести списком</button>
       <button class="tab" data-view="directory" onclick="setView('directory')">Справочники</button>
       <button class="tab" data-view="requests" onclick="setView('requests')">Запросы</button>
     </div>
@@ -532,6 +533,28 @@
       <div id="directoryMessage"></div>
     </div>
 
+    <div id="view-inventory-list" class="view">
+      <div class="card">
+        <div class="section-title">Вывести списком</div>
+        <div class="section-sub">Сформируй список номенклатуры по выбранному объекту для копирования в мессенджер</div>
+        <div class="grid grid-2">
+          <div class="field">
+            <label>Объект</label>
+            <select id="inventoryListObject" onchange="renderInventoryListOutput()"></select>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="renderInventoryListOutput()">Обновить список</button>
+          <button class="btn btn-primary" onclick="copyInventoryListOutput()">Копировать список</button>
+        </div>
+        <div id="inventoryListMessage" style="margin-top:10px;"></div>
+        <div class="field" style="margin-top:10px;">
+          <label>Текст для отправки</label>
+          <textarea id="inventoryListOutput" readonly placeholder="Выбери объект, чтобы получить список"></textarea>
+        </div>
+      </div>
+    </div>
+
     <div id="view-requests" class="view">
       <div class="card">
         <div class="section-title">Запросы на новые позиции</div>
@@ -644,6 +667,7 @@ function refreshAllStorekeeperData() {
       fillSelect('opObject', 'Выбери объект', initData.objects);
       fillSelect('opDestination', 'Выбери объект', initData.objects);
       fillSelect('bulkObject', 'Выбери объект', initData.objects);
+      fillSelect('inventoryListObject', 'Выбери объект', initData.objects);
       fillSelect('massMoveSource', 'Выбери объект', initData.objects);
       fillSelect('massMoveDestination', 'Выбери объект', initData.objects);
       fillSelect('massMoveType', 'Все типы', initData.types);
@@ -673,6 +697,7 @@ function refreshAllStorekeeperData() {
       renderAssignAvailableTable();
       renderReassignAvailableTable();
       renderMassMoveAvailable();
+      renderInventoryListOutput();
       loadRequestsTab();
     })
     .withFailureHandler(showError)
@@ -1461,6 +1486,49 @@ function saveDirectoryItem(kind) {
   }).withFailureHandler(function(err){
     document.getElementById('directoryMessage').innerHTML = '<div class="danger">' + escapeHtml(err.message || err) + '</div>';
   }).saveStorekeeperDirectoryItem(payload);
+}
+
+function renderInventoryListOutput() {
+  const objectName = (document.getElementById('inventoryListObject').value || '').trim();
+  const outputEl = document.getElementById('inventoryListOutput');
+  const messageEl = document.getElementById('inventoryListMessage');
+  if (!objectName) {
+    outputEl.value = '';
+    messageEl.innerHTML = '<div class="muted">Выбери объект, чтобы сформировать список.</div>';
+    return;
+  }
+
+  const rows = (initData.balances || [])
+    .filter(function (row) {
+      return normalizeText(row.objectName) === normalizeText(objectName) && Number(row.qty) > 0;
+    })
+    .sort(function (a, b) {
+      return String(a.name || '').localeCompare(String(b.name || ''), 'ru');
+    });
+
+  if (!rows.length) {
+    outputEl.value = '';
+    messageEl.innerHTML = '<div class="muted">По выбранному объекту нет остатков.</div>';
+    return;
+  }
+
+  outputEl.value = rows.map(function (row) {
+    return String(row.name || '').trim() + ' ' + formatQty(row.qty) + ' ' + String(row.unit || '').trim();
+  }).join('\n');
+  messageEl.innerHTML = '<div class="ok">Список сформирован: ' + rows.length + ' поз.</div>';
+}
+
+function copyInventoryListOutput() {
+  const outputEl = document.getElementById('inventoryListOutput');
+  const messageEl = document.getElementById('inventoryListMessage');
+  if (!outputEl.value.trim()) {
+    messageEl.innerHTML = '<div class="danger">Список пуст. Сначала выбери объект.</div>';
+    return;
+  }
+  outputEl.select();
+  outputEl.setSelectionRange(0, outputEl.value.length);
+  document.execCommand('copy');
+  messageEl.innerHTML = '<div class="ok">Список скопирован в буфер обмена.</div>';
 }
 function deleteDirectoryItem(kind) {
   const payload = { kind: kind };

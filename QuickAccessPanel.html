@@ -4,47 +4,119 @@
   <base target="_top">
   <meta charset="UTF-8">
   <style>
+    * { box-sizing: border-box; }
     body {
-      font-family: Arial, sans-serif;
       margin: 0;
-      padding: 16px;
+      font-family: Arial, sans-serif;
       background: #f5f7fb;
-      color: #222;
+      color: #1f2937;
+      height: 100vh;
+      overflow: hidden;
     }
-    .title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
-    .sub { font-size: 12px; color: #6b7280; margin-bottom: 14px; }
-    .btn {
-      display: block; width: 100%; border: none; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
-      text-align: left; font-size: 14px; font-weight: 700; cursor: pointer; background: #ffffff;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: 0.15s ease;
+    .app {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      height: 100vh;
     }
-    .btn:hover { background: #eef4ff; }
-    .btn-primary { background: #2f6fed; color: #fff; }
-    .btn-primary:hover { background: #2459bf; }
-    .status { margin-top: 8px; font-size: 12px; color: #188038; font-weight: 700; min-height: 18px; }
+    .sidebar {
+      border-right: 1px solid #dbe4f3;
+      background: #ffffff;
+      padding: 16px 12px;
+      overflow-y: auto;
+    }
+    .title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .sub { font-size: 12px; color: #6b7280; margin-bottom: 16px; }
+    .nav-btn {
+      width: 100%;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #fff;
+      padding: 11px 12px;
+      text-align: left;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    .nav-btn.active { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+    .nav-btn:hover { background: #eef4ff; }
+    .main { padding: 0; display: flex; flex-direction: column; min-width: 0; }
+    .toolbar {
+      height: 52px;
+      background: #fff;
+      border-bottom: 1px solid #dbe4f3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      font-size: 13px;
+      gap: 10px;
+    }
+    .status { color: #374151; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .content { flex: 1; background: #fff; }
+    iframe { width: 100%; height: 100%; border: 0; background: #fff; }
   </style>
 </head>
 <body>
-  <div class="title">Меню</div>
-  <div class="sub">Все разделы доступны всем пользователям</div>
-  <div id="buttons">
-    <button class="btn btn-primary" onclick="runAction('openQuickStorekeeperDashboard', 'Открываем дашборд кладовщика...')">Дашборд кладовщика</button>
-    <button class="btn" onclick="runAction('openQuickInventory', 'Открываем инвентаризацию...')">Инвентаризация</button>
-    <button class="btn" onclick="runAction('openQuickSearch', 'Открываем поиск товара...')">Поиск товара</button>
-    <button class="btn" onclick="runAction('openQuickManagementDashboard', 'Открываем дашборд руководителя...')">Дашборд руководителя</button>
-    <button class="btn" onclick="runAction('openQuickFleetDashboard', 'Открываем панель автопарка и поездок...')">Автопарк и поездки</button>
-    <button class="btn" onclick="runAction('showCargoTripsApp', 'Открываем модуль грузоперевозок...')">Грузоперевозки</button>
-    <button class="btn" onclick="runAction('openQuickRefreshAll', 'Обновляем данные...')">Обновить всё</button>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="title">Склад</div>
+      <div class="sub">Единое окно для всех модулей</div>
+      <button class="nav-btn active" data-module="StorekeeperDashboard" onclick="loadModule('StorekeeperDashboard', this)">Дашборд кладовщика</button>
+      <button class="nav-btn" data-module="InventoryForm" onclick="loadModule('InventoryForm', this)">Инвентаризация</button>
+      <button class="nav-btn" data-module="SearchForm" onclick="loadModule('SearchForm', this)">Поиск товара</button>
+      <button class="nav-btn" data-module="ManagementDashboard" onclick="loadModule('ManagementDashboard', this)">Дашборд руководителя</button>
+      <button class="nav-btn" data-module="FleetTripsDashboard" onclick="loadModule('FleetTripsDashboard', this)">Автопарк и поездки</button>
+      <button class="nav-btn" data-module="TripsApp" onclick="loadModule('TripsApp', this)">Грузоперевозки</button>
+      <button class="nav-btn" onclick="refreshAllData()">Обновить всё</button>
+    </aside>
+    <main class="main">
+      <div class="toolbar">
+        <div id="currentTitle">Открыт модуль: Дашборд кладовщика</div>
+        <div id="status" class="status"></div>
+      </div>
+      <div class="content">
+        <iframe id="moduleFrame" title="Модуль"></iframe>
+      </div>
+    </main>
   </div>
-  <div id="status" class="status"></div>
 
   <script>
-    function runAction(fnName, statusText) {
-      document.getElementById('status').textContent = statusText;
-      google.script.run
-        .withSuccessHandler(function () { document.getElementById('status').textContent = ''; })
-        .withFailureHandler(function (err) { document.getElementById('status').textContent = 'Ошибка: ' + (err.message || err); })[fnName]();
+    function setStatus(text) {
+      document.getElementById('status').textContent = text || '';
     }
+
+    function setActive(button) {
+      document.querySelectorAll('.nav-btn[data-module]').forEach(function (btn) {
+        btn.classList.toggle('active', btn === button);
+      });
+    }
+
+    function loadModule(moduleName, button) {
+      if (button) setActive(button);
+      document.getElementById('currentTitle').textContent = 'Открыт модуль: ' + button.textContent;
+      setStatus('Загрузка модуля...');
+
+      google.script.run
+        .withSuccessHandler(function (htmlContent) {
+          document.getElementById('moduleFrame').srcdoc = htmlContent;
+          setStatus('');
+        })
+        .withFailureHandler(function (err) {
+          setStatus('Ошибка: ' + (err.message || err));
+        })
+        .getUnifiedModuleHtml(moduleName);
+    }
+
+    function refreshAllData() {
+      setStatus('Обновляем данные...');
+      google.script.run
+        .withSuccessHandler(function () { setStatus('Данные обновлены'); })
+        .withFailureHandler(function (err) { setStatus('Ошибка: ' + (err.message || err)); })
+        .openQuickRefreshAll();
+    }
+
+    loadModule('StorekeeperDashboard', document.querySelector('.nav-btn[data-module="StorekeeperDashboard"]'));
   </script>
 </body>
 </html>

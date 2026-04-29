@@ -371,10 +371,27 @@ function updateCatalogPriceByArticle_(article, newPrice) {
 
 function showMainMenuPanel() {
   const html = HtmlService.createHtmlOutputFromFile('QuickAccessPanel')
-    .setWidth(420)
-    .setHeight(680)
-    .setTitle('Меню');
-  SpreadsheetApp.getUi().showModelessDialog(html, 'Меню');
+    .setWidth(1700)
+    .setHeight(980)
+    .setTitle('Склад: единое окно');
+  SpreadsheetApp.getUi().showModelessDialog(html, 'Склад: единое окно');
+}
+
+function getUnifiedModuleHtml(moduleName) {
+  const modules = {
+    StorekeeperDashboard: { file: 'StorekeeperDashboard', permission: 'storekeeperDashboard', action: 'дашборд кладовщика' },
+    InventoryForm: { file: 'InventoryForm', permission: 'inventory', action: 'инвентаризация' },
+    SearchForm: { file: 'SearchForm', permission: 'search', action: 'поиск товара' },
+    ManagementDashboard: { file: 'ManagementDashboard', permission: 'managementDashboard', action: 'дашборд руководителя' },
+    FleetTripsDashboard: { file: 'FleetTripsDashboard', permission: 'fleetDashboard', action: 'панель автопарка и поездок' },
+    TripsApp: { file: 'TripsApp', permission: 'fleetDashboard', action: 'модуль грузоперевозок' }
+  };
+
+  const selected = modules[String(moduleName || '')];
+  if (!selected) throw new Error('Неизвестный модуль: ' + moduleName);
+
+  requirePermission_(selected.permission, selected.action);
+  return HtmlService.createHtmlOutputFromFile(selected.file).getContent();
 }
 
 function showQuickAccessPanel() {

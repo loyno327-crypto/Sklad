@@ -228,6 +228,7 @@
           <td>${escapeHtml(r.lastServiceDate || '—')}</td>
           <td>${fmtNum(r.mileage)} км</td>
           <td>${fmtMoney(r.totalMaintenanceCost || 0)}</td>
+          <td>${chips}</td>
           <td>${r.nextMaintenance ? fmtNum(r.nextMaintenance) + ' км' : '—'}</td>
           <td><span class="status ${getStatusClass(r.status)}">${escapeHtml(r.status)}</span></td>
         </tr>`;
